@@ -218,7 +218,9 @@ app.get('/api/status', (req, res) => {
     configured,
     geofenceMeters: GEOFENCE,
     role: req.session.role || null,
-    shopName: 'Rajarajeswari'
+    shopName: 'Rajarajeswari',
+    shopLat: SHOP_LAT,
+    shopLng: SHOP_LNG
   });
 });
 

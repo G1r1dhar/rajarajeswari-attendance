@@ -1,37 +1,1241 @@
-import React,{useEffect,useRef,useState} from 'react';
-import{createRoot}from'react-dom/client';
-import{Html5Qrcode}from'html5-qrcode';
-import{ShieldCheck,Store,Users,ScanLine,Clock3,LogOut,Download,RefreshCw,Plus,Check,AlertTriangle,MapPin,Smartphone,LockKeyhole,ArrowLeft,Utensils,CalendarDays}from'lucide-react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
+import { createRoot } from 'react-dom/client';
+import { Html5Qrcode } from 'html5-qrcode';
+import {
+  Store,
+  ShieldCheck,
+  Users,
+  ScanLine,
+  Clock,
+  LogOut,
+  Download,
+  RefreshCw,
+  Plus,
+  Check,
+  AlertTriangle,
+  MapPin,
+  Smartphone,
+  Lock,
+  Eye,
+  EyeOff,
+  Search,
+  Coffee,
+  CheckCircle2,
+  XCircle,
+  QrCode,
+  User,
+  ChevronRight,
+  Sparkles,
+  ArrowRight,
+  ShieldAlert
+} from 'lucide-react';
 import './style.css';
-const api=async(path,opts={})=>{const r=await fetch('/api'+path,{credentials:'include',headers:{'Content-Type':'application/json',...(opts.headers||{})},...opts});let d={};try{d=await r.json()}catch{}if(!r.ok)throw Error(d.error||'Request failed');return d};
-const deviceKey=()=>{let k=localStorage.getItem('rr_device_key');if(!k){k=crypto.randomUUID().replaceAll('-','');localStorage.setItem('rr_device_key',k)}return k};
-function App(){const[role,setRole]=useState(null),[status,setStatus]=useState(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[error,setError]=useState('');const[pin,setPin]=useState(''),[code,setCode]=useState(''),[name,setName]=useState('');const[staffPin,setStaffPin]=useState('');const[staff,setStaff]=useState([]),[board,setBoard]=useState([]),[devices,setDevices]=useState([]),[logs,setLogs]=useState([]),[qr,setQr]=useState(null),[me,setMe]=useState(null),[action,setAction]=useState('in'),[tab,setTab]=useState('board');const scanner=useRef(null);const [scanOpen,setScanOpen]=useState(false);
- const flash=(s,e='')=>{setMessage(s);setError(e);setTimeout(()=>{setMessage('');setError('')},5000)};
- const refreshOwner=async()=>{try{const [s,b,d,l]=await Promise.all([api('/owner/staff'),api('/owner/board'),api('/owner/devices'),api('/owner/logs')]);setStaff(s);setBoard(b);setDevices(d);setLogs(l)}catch(e){flash('',e.message)}};
- useEffect(()=>{api('/status').then(setStatus).catch(e=>flash('',e.message));},[]);
- useEffect(()=>{if(role==='owner'){refreshOwner();const t=setInterval(refreshOwner,12000);return()=>clearInterval(t)}},[role]);
- useEffect(()=>{if(role==='owner'&&tab==='qr'){const load=()=>api('/owner/qr').then(setQr).catch(e=>flash('',e.message));load();const t=setInterval(load,25000);return()=>clearInterval(t)}},[role,tab]);
- useEffect(()=>{if(role==='staff'){api('/staff/me').then(setMe).catch(e=>{setRole(null);flash('',e.message)})}},[role]);
- const loginOwner=async e=>{e.preventDefault();setBusy(true);try{await api('/owner/login',{method:'POST',body:JSON.stringify({pin})});setRole('owner');setPin('');flash('Welcome, owner')}catch(e){flash('',e.message)}finally{setBusy(false)}};
- const loginStaff=async e=>{e.preventDefault();setBusy(true);try{const d=await api('/staff/login',{method:'POST',body:JSON.stringify({code,pin:staffPin,deviceKey:deviceKey()})});setRole('staff');setMe({staff:d.staff,attendance:null});setStaffPin('');flash('Welcome '+d.staff.name)}catch(e){flash('',e.message)}finally{setBusy(false)}};
- const logout=async()=>{try{await api('/logout',{method:'POST'})}catch{}setRole(null);setMe(null);setQr(null);setTab('board')};
- const addStaff=async e=>{e.preventDefault();try{await api('/owner/staff',{method:'POST',body:JSON.stringify({name,code,pin:staffPin})});setName('');setCode('');setStaffPin('');flash('Staff member created');refreshOwner()}catch(e){flash('',e.message)}};
- const deviceAction=async(id,act)=>{try{await api(`/owner/devices/${id}/${act}`,{method:'POST'});flash(act==='approve'?'Device approved':'Device revoked');refreshOwner()}catch(e){flash('',e.message)}};
- const toggleStaff=async id=>{try{await api(`/owner/staff/${id}/toggle`,{method:'POST'});refreshOwner()}catch(e){flash('',e.message)}};
- const startScanner=async()=>{setScanOpen(true);setTimeout(async()=>{try{const q=new Html5Qrcode('qr-reader');scanner.current=q;await q.start({facingMode:'environment'},{fps:10,qrbox:{width:240,height:240}},async decoded=>{await q.stop();scanner.current=null;setScanOpen(false);await submitAttendance(decoded)},()=>{})}catch(e){setScanOpen(false);flash('',`Camera error: ${e}`)}},100)};
- const stopScanner=async()=>{try{if(scanner.current){await scanner.current.stop();scanner.current=null}}catch{}setScanOpen(false)};
- const submitAttendance=async token=>{setBusy(true);try{if(!navigator.geolocation)throw Error('GPS is not available on this phone');const pos=await new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:true,timeout:15000,maximumAge:0}));const d=await api('/attendance/scan',{method:'POST',body:JSON.stringify({token,action,latitude:pos.coords.latitude,longitude:pos.coords.longitude})});setMe({staff:d.staff,attendance:d.attendance});flash('Attendance saved successfully')}catch(e){flash('',e.message==='User denied Geolocation'? 'Please allow location access to mark attendance':e.message)}finally{setBusy(false)}};
- const fmt=t=>t?new Date(t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—';const mins=n=>`${Math.floor((n||0)/60)}h ${(n||0)%60}m`;
- if(!role)return <main className="login-shell"><div className="brand"><div className="brand-icon"><Store/></div><div><h1>Rajarajeswari</h1><p>Staff Attendance</p></div></div><section className="login-card"><div className="eyebrow"><ShieldCheck size={16}/> SECURE ATTENDANCE</div><h2>Welcome</h2><p className="muted">Sign in to continue to your attendance portal.</p><div className="switcher"><button className="active">Owner</button><button onClick={()=>document.getElementById('staff-login')?.scrollIntoView({behavior:'smooth'})}>Staff</button></div><form onSubmit={loginOwner}><label>Owner PIN</label><input value={pin} onChange={e=>setPin(e.target.value)} type="password" inputMode="numeric" maxLength="8" placeholder="Enter owner PIN" required/><button className="primary full" disabled={busy}><LockKeyhole size={17}/> Owner Login</button></form><div className="or">STAFF LOGIN</div><form id="staff-login" onSubmit={loginStaff}><label>Staff ID</label><input value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="e.g. RR001" required/><label>Staff PIN</label><input value={staffPin} onChange={e=>setStaffPin(e.target.value)} type="password" inputMode="numeric" maxLength="8" placeholder="Your PIN" required/><button className="dark full" disabled={busy}>Staff Login</button></form></section><p className="footnote">Protected access · Rajarajeswari Retail</p><Notice message={message} error={error}/></main>;
- return <div className="app-shell"><header className="topbar"><div className="brand small"><div className="brand-icon"><Store/></div><div><h1>Rajarajeswari</h1><p>Attendance Management</p></div></div><div className="top-actions"><span className="role-pill">{role==='owner'?'OWNER':'STAFF'}</span><button className="icon-btn" onClick={logout} title="Logout"><LogOut size={18}/></button></div></header>
- {role==='owner'?<><section className="welcome-row"><div><p className="eyebrow">OWNER CONSOLE</p><h2>Dashboard</h2><p className="muted">Manage staff and monitor today's attendance.</p></div><button className="outline" onClick={refreshOwner}><RefreshCw size={16}/> Refresh</button></section><div className="stats"><Stat title="Total Staff" value={staff.length} icon={<Users/>}/><Stat title="In Shop" value={board.filter(x=>x.status==='in').length} icon={<Store/>}/><Stat title="On Lunch" value={board.filter(x=>x.status==='lunch').length} icon={<Utensils/>}/><Stat title="Checked Out" value={board.filter(x=>x.status==='out'&&x.clock_in).length} icon={<Clock3/>}/></div><nav className="tabs">{[['board','Live Board'],['qr','Shop QR'],['staff','Staff'],['devices','Devices'],['logs','Security Logs']].map(([k,v])=><button key={k} className={tab===k?'selected':''} onClick={()=>setTab(k)}>{v}</button>)}</nav>
- {tab==='board'&&<section className="panel"><div className="panel-head"><h3>Today's attendance</h3><span className="live-dot">LIVE</span></div><div className="table-wrap"><table><thead><tr><th>Staff</th><th>Status</th><th>In</th><th>Lunch</th><th>Out</th></tr></thead><tbody>{board.map(x=><tr key={x.id}><td><b>{x.name}</b><small>{x.code}</small></td><td><Status value={x.status}/></td><td>{fmt(x.clock_in)}</td><td>{x.total_break_minutes||0} min</td><td>{fmt(x.clock_out)}</td></tr>)}</tbody></table>{!board.length&&<Empty>No staff added yet.</Empty>}</div></section>}
- {tab==='qr'&&<section className="panel qr-panel"><div className="panel-head"><h3>Live shop QR code</h3><span className="live-dot">ROTATES 30 SEC</span></div><p className="muted">Display this QR on the shop tablet. Staff scan it from their registered phones.</p>{qr?<><img className="qr-image" src={qr.dataUrl} alt="Live attendance QR"/><p className="countdown">Expires at {new Date(qr.expiresAt*1000).toLocaleTimeString()}</p></>:<div className="placeholder">Generating secure QR…</div>}<p className="security-note"><ShieldCheck size={16}/> Signed by the server · Single-use challenge · 30-second expiry</p></section>}
- {tab==='staff'&&<section className="two-col"><div className="panel"><h3>Add staff member</h3><form onSubmit={addStaff}><label>Full name</label><input value={name} onChange={e=>setName(e.target.value)} placeholder="Staff name" required/><label>Staff ID</label><input value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="RR001" required/><label>Temporary PIN (4–8 digits)</label><input value={staffPin} onChange={e=>setStaffPin(e.target.value)} inputMode="numeric" maxLength="8" placeholder="Set staff PIN" required/><button className="primary full"><Plus size={17}/> Create Staff</button></form></div><div className="panel"><h3>Staff directory</h3>{staff.map(x=><div className="list-row" key={x.id}><div><b>{x.name}</b><small>{x.code} · {x.active?'Active':'Inactive'}</small></div><button className="outline compact" onClick={()=>toggleStaff(x.id)}>{x.active?'Deactivate':'Activate'}</button></div>)}{!staff.length&&<Empty>No staff registered.</Empty>}</div></section>}
- {tab==='devices'&&<section className="panel"><h3>Registered phones</h3><p className="muted">A new phone must be approved by the owner before staff can log in.</p>{devices.map(d=><div className="list-row" key={d.id}><div><b>{d.name} <small>({d.code})</small></b><small className="device-key">Device: {d.device_key}</small><Status value={d.approved?'approved':'pending'}/></div><div className="row-actions">{!d.approved&&<button className="primary compact" onClick={()=>deviceAction(d.id,'approve')}><Check size={15}/> Approve</button>}<button className="outline compact" onClick={()=>deviceAction(d.id,'revoke')}>Revoke</button></div></div>)}{!devices.length&&<Empty>No devices registered yet.</Empty>}</section>}
- {tab==='logs'&&<section className="panel"><div className="panel-head"><h3>Security audit log</h3><a className="outline link-btn" href="/api/owner/export.csv"><Download size={16}/> Export CSV</a></div><div className="table-wrap"><table><thead><tr><th>Time</th><th>Staff</th><th>Result</th><th>Details</th></tr></thead><tbody>{logs.map(l=><tr key={l.id}><td>{new Date(l.attempted_at).toLocaleString()}</td><td>{l.name||'Unknown'}<small>{l.code||'—'}</small></td><td><Status value={l.result}/></td><td>{l.detail}</td></tr>)}</tbody></table>{!logs.length&&<Empty>No scan attempts recorded.</Empty>}</div></section>}</>:<><section className="welcome-row"><div><p className="eyebrow">STAFF PORTAL</p><h2>Hello, {me?.staff?.name||'Staff'}</h2><p className="muted">Scan the live shop QR to record attendance.</p></div><div className="staff-avatar">{(me?.staff?.name||'S').slice(0,1).toUpperCase()}</div></section><section className="panel staff-status"><div className="panel-head"><h3>Today's attendance</h3><Status value={me?.attendance?.status||'out'}/></div><div className="time-grid"><Time label="Clock In" value={fmt(me?.attendance?.clock_in)}/><Time label="Lunch break" value={`${me?.attendance?.total_break_minutes||0} min`}/><Time label="Clock Out" value={fmt(me?.attendance?.clock_out)}/></div></section><section className="panel scan-card"><div className="scan-icon"><ScanLine size={30}/></div><h3>Mark your attendance</h3><p className="muted">Choose the action, then scan the live QR displayed at the shop.</p><div className="action-grid"><button className={action==='in'?'action active':'action'} onClick={()=>setAction('in')}><Store/>In to the Shop</button><button className={action==='lunch'?'action active':'action'} onClick={()=>setAction('lunch')}><Utensils/>Lunch / Return</button><button className={action==='out'?'action active':'action'} onClick={()=>setAction('out')}><LogOut/>Out of the Shop</button></div>{scanOpen?<><div id="qr-reader" className="reader"/><button className="outline full" onClick={stopScanner}>Cancel scanner</button></>:<button className="primary full scan-button" onClick={startScanner} disabled={busy}><ScanLine size={19}/> {busy?'Please wait…':'Open QR Scanner'}</button>}<p className="security-note"><MapPin size={15}/> GPS location permission is required. Attendance is accepted only within the shop's configured geofence.</p></section></>}
- <footer className="app-footer">Rajarajeswari · Secure Staff Attendance</footer><Notice message={message} error={error}/></div>
-}
-function Notice({message,error}){return message||error?<div className={'toast '+(error?'bad':'good')}>{error||message}</div>:null}function Stat({title,value,icon}){return <div className="stat"><div className="stat-icon">{icon}</div><div><span>{title}</span><strong>{value}</strong></div></div>}function Status({value}){const v=String(value||'out').toLowerCase();let cls=v==='in'?'green':v==='lunch'?'amber':v==='approved'?'green':v==='pending'?'amber':v==='success'?'green':v==='out'?'gray':'red';return <span className={'status '+cls}>{v.replaceAll('_',' ')}</span>}function Empty({children}){return <div className="empty">{children}</div>}function Time({label,value}){return <div className="time-cell"><span>{label}</span><b>{value}</b></div>}
 
-createRoot(document.getElementById('root')).render(<App/>);
+const api = async (path, opts = {}) => {
+  const r = await fetch('/api' + path, {
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    ...opts
+  });
+  let d = {};
+  try {
+    d = await r.json();
+  } catch {}
+  if (!r.ok) throw new Error(d.error || 'Request failed');
+  return d;
+};
+
+const getDeviceKey = () => {
+  let k = localStorage.getItem('rr_device_key');
+  if (!k) {
+    k = crypto.randomUUID().replaceAll('-', '');
+    localStorage.setItem('rr_device_key', k);
+  }
+  return k;
+};
+
+function distanceMeters(aLat, aLng, bLat, bLng) {
+  const rad = n => (n * Math.PI) / 180;
+  const R = 6371000;
+  const dLat = rad(bLat - aLat);
+  const dLng = rad(bLng - aLng);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+export function App() {
+  const [role, setRole] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  // Login Form States
+  const [loginRole, setLoginRole] = useState('staff'); // 'owner' | 'staff'
+  const [pin, setPin] = useState('');
+  const [code, setCode] = useState('');
+  const [staffPin, setStaffPin] = useState('');
+  const [showPin, setShowPin] = useState(false);
+
+  // Owner Data States
+  const [staff, setStaff] = useState([]);
+  const [board, setBoard] = useState([]);
+  const [devices, setDevices] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [qr, setQr] = useState(null);
+  const [tab, setTab] = useState('board');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Add Staff form states
+  const [newStaffName, setNewStaffName] = useState('');
+  const [newStaffCode, setNewStaffCode] = useState('');
+  const [newStaffPin, setNewStaffPin] = useState('');
+
+  // Staff Portal States
+  const [me, setMe] = useState(null);
+  const [action, setAction] = useState('in'); // 'in' | 'lunch' | 'out'
+  const [scanOpen, setScanOpen] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [geoStatus, setGeoStatus] = useState({ state: 'checking', text: 'Checking Shop Geofence...' });
+  const scanner = useRef(null);
+
+  const flash = (msg, err = '') => {
+    setMessage(msg);
+    setError(err);
+    if (msg || err) {
+      setTimeout(() => {
+        setMessage('');
+        setError('');
+      }, 5000);
+    }
+  };
+
+  // Live Clock Ticker
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Fetch initial system status
+  useEffect(() => {
+    api('/status')
+      .then(res => {
+        setStatus(res);
+        if (res.role) setRole(res.role);
+      })
+      .catch(e => flash('', e.message));
+  }, []);
+
+  // Fetch Owner Data
+  const refreshOwner = async () => {
+    try {
+      const [s, b, d, l] = await Promise.all([
+        api('/owner/staff'),
+        api('/owner/board'),
+        api('/owner/devices'),
+        api('/owner/logs')
+      ]);
+      setStaff(s);
+      setBoard(b);
+      setDevices(d);
+      setLogs(l);
+    } catch (e) {
+      flash('', e.message);
+    }
+  };
+
+  useEffect(() => {
+    if (role === 'owner') {
+      refreshOwner();
+      const t = setInterval(refreshOwner, 12000);
+      return () => clearInterval(t);
+    }
+  }, [role]);
+
+  // Shop QR Polling for Owner Kiosk
+  useEffect(() => {
+    if (role === 'owner' && tab === 'qr') {
+      const loadQr = () => api('/owner/qr').then(setQr).catch(e => flash('', e.message));
+      loadQr();
+      const t = setInterval(loadQr, 25000);
+      return () => clearInterval(t);
+    }
+  }, [role, tab]);
+
+  // Fetch Staff Status & Check Geofence
+  const refreshStaff = () => {
+    if (role === 'staff') {
+      api('/staff/me')
+        .then(setMe)
+        .catch(e => {
+          setRole(null);
+          flash('', e.message);
+        });
+    }
+  };
+
+  useEffect(() => {
+    if (role === 'staff') {
+      refreshStaff();
+      checkGeofence();
+    }
+  }, [role, status]);
+
+  const checkGeofence = () => {
+    if (!navigator.geolocation) {
+      setGeoStatus({ state: 'outside', text: 'GPS Not Supported' });
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        if (status?.shopLat != null && status?.shopLng != null) {
+          const meters = Math.round(
+            distanceMeters(status.shopLat, status.shopLng, pos.coords.latitude, pos.coords.longitude)
+          );
+          const limit = status.geofenceMeters || 50;
+          if (meters <= limit) {
+            setGeoStatus({ state: 'inside', text: `Within Shop Zone (${meters}m / ${limit}m)` });
+          } else {
+            setGeoStatus({ state: 'outside', text: `Outside Shop Range (${meters}m away)` });
+          }
+        } else {
+          setGeoStatus({ state: 'inside', text: `Within Shop Zone (${status?.geofenceMeters || 50}m)` });
+        }
+      },
+      () => {
+        setGeoStatus({ state: 'outside', text: 'Location Access Needed' });
+      },
+      { timeout: 8000, enableHighAccuracy: true }
+    );
+  };
+
+  // Auth Handlers
+  const handleOwnerLogin = async e => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api('/owner/login', {
+        method: 'POST',
+        body: JSON.stringify({ pin })
+      });
+      setRole('owner');
+      setPin('');
+      flash('Welcome, Owner');
+    } catch (e) {
+      flash('', e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleStaffLogin = async e => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const d = await api('/staff/login', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: code.trim().toUpperCase(),
+          pin: staffPin,
+          deviceKey: getDeviceKey()
+        })
+      });
+      setRole('staff');
+      setMe({ staff: d.staff, attendance: null });
+      setStaffPin('');
+      flash(`Welcome back, ${d.staff.name}`);
+    } catch (e) {
+      flash('', e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await api('/logout', { method: 'POST' });
+    } catch {}
+    setRole(null);
+    setMe(null);
+    setQr(null);
+    setTab('board');
+  };
+
+  // Owner Management Handlers
+  const handleAddStaff = async e => {
+    e.preventDefault();
+    try {
+      await api('/owner/staff', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: newStaffName,
+          code: newStaffCode.trim().toUpperCase(),
+          pin: newStaffPin
+        })
+      });
+      setNewStaffName('');
+      setNewStaffCode('');
+      setNewStaffPin('');
+      flash('Staff member successfully created');
+      refreshOwner();
+    } catch (e) {
+      flash('', e.message);
+    }
+  };
+
+  const handleDeviceAction = async (id, act) => {
+    try {
+      await api(`/owner/devices/${id}/${act}`, { method: 'POST' });
+      flash(act === 'approve' ? 'Device approved successfully' : 'Device access revoked');
+      refreshOwner();
+    } catch (e) {
+      flash('', e.message);
+    }
+  };
+
+  const handleToggleStaff = async id => {
+    try {
+      await api(`/owner/staff/${id}/toggle`, { method: 'POST' });
+      refreshOwner();
+    } catch (e) {
+      flash('', e.message);
+    }
+  };
+
+  // Scanner Logic
+  const startScanner = async forcedAction => {
+    const targetAction = forcedAction || action;
+    setAction(targetAction);
+    setScanOpen(true);
+    setTimeout(async () => {
+      try {
+        const q = new Html5Qrcode('qr-reader');
+        scanner.current = q;
+        await q.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 240, height: 240 } },
+          async decoded => {
+            await q.stop();
+            scanner.current = null;
+            setScanOpen(false);
+            await submitAttendance(decoded, targetAction);
+          },
+          () => {}
+        );
+      } catch (e) {
+        setScanOpen(false);
+        flash('', `Camera permission error: ${e.message || e}`);
+      }
+    }, 120);
+  };
+
+  const stopScanner = async () => {
+    try {
+      if (scanner.current) {
+        await scanner.current.stop();
+        scanner.current = null;
+      }
+    } catch {}
+    setScanOpen(false);
+  };
+
+  const submitAttendance = async (token, actionType) => {
+    setBusy(true);
+    try {
+      if (!navigator.geolocation) throw new Error('GPS is not available on this phone');
+      const pos = await new Promise((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 0
+        })
+      );
+      const d = await api('/attendance/scan', {
+        method: 'POST',
+        body: JSON.stringify({
+          token,
+          action: actionType || action,
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude
+        })
+      });
+      setMe({ staff: d.staff, attendance: d.attendance });
+      checkGeofence();
+      flash('Attendance verified & saved successfully');
+    } catch (e) {
+      flash(
+        '',
+        e.message === 'User denied Geolocation'
+          ? 'Location access denied. Please allow GPS to mark attendance.'
+          : e.message
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Formatting helpers
+  const fmtTime = t =>
+    t ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : '—';
+
+  const fmtDuration = (mins = 0) => {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${h}h ${m < 10 ? '0' : ''}${m}m`;
+  };
+
+  // Filtered Board Data
+  const filteredBoard = useMemo(() => {
+    if (!searchQuery) return board;
+    const q = searchQuery.toLowerCase();
+    return board.filter(
+      item => item.name?.toLowerCase().includes(q) || item.code?.toLowerCase().includes(q)
+    );
+  }, [board, searchQuery]);
+
+  // ----------------------------------------------------
+  // 1. LOGIN SCREEN
+  // ----------------------------------------------------
+  if (!role) {
+    return (
+      <main className="login-container">
+        <div className="login-brand">
+          <div className="brand-badge">
+            <Store size={28} />
+          </div>
+          <h1>Rajarajeswari</h1>
+          <p>Staff Attendance & Workforce Portal</p>
+        </div>
+
+        <section className="login-card">
+          {/* Segmented Pill Switcher */}
+          <div className="segmented-control">
+            <button
+              type="button"
+              className={`segmented-btn ${loginRole === 'staff' ? 'active' : ''}`}
+              onClick={() => {
+                setLoginRole('staff');
+                setShowPin(false);
+              }}
+            >
+              <User size={15} /> Staff
+            </button>
+            <button
+              type="button"
+              className={`segmented-btn ${loginRole === 'owner' ? 'active' : ''}`}
+              onClick={() => {
+                setLoginRole('owner');
+                setShowPin(false);
+              }}
+            >
+              <Lock size={15} /> Owner
+            </button>
+          </div>
+
+          {/* Conditional Role-Specific Form */}
+          {loginRole === 'owner' ? (
+            <form onSubmit={handleOwnerLogin}>
+              <div className="form-group">
+                <label className="form-label">
+                  <span>Owner PIN</span>
+                  <span className="section-label" style={{ fontSize: '0.68rem' }}>4–8 Digits</span>
+                </label>
+                <div className="input-wrapper">
+                  <span className="input-icon-left">
+                    <Lock size={18} />
+                  </span>
+                  <input
+                    value={pin}
+                    onChange={e => setPin(e.target.value)}
+                    type={showPin ? 'text' : 'password'}
+                    inputMode="numeric"
+                    maxLength={8}
+                    placeholder="Enter owner PIN"
+                    className="form-input font-mono"
+                    required
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="toggle-password-btn"
+                    onClick={() => setShowPin(!showPin)}
+                    title={showPin ? 'Hide PIN' : 'Show PIN'}
+                  >
+                    {showPin ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              <button type="submit" className="btn-primary" disabled={busy}>
+                <Lock size={17} /> {busy ? 'Authenticating…' : 'Access Owner Console'}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleStaffLogin}>
+              <div className="form-group">
+                <label className="form-label">Staff ID</label>
+                <div className="input-wrapper">
+                  <span className="input-icon-left">
+                    <User size={18} />
+                  </span>
+                  <input
+                    value={code}
+                    onChange={e => setCode(e.target.value.toUpperCase())}
+                    placeholder="e.g. RR001"
+                    className="form-input font-mono"
+                    style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}
+                    required
+                    autoFocus
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">
+                  <span>Staff PIN</span>
+                  <span className="section-label" style={{ fontSize: '0.68rem' }}>Numeric</span>
+                </label>
+                <div className="input-wrapper">
+                  <span className="input-icon-left">
+                    <Lock size={18} />
+                  </span>
+                  <input
+                    value={staffPin}
+                    onChange={e => setStaffPin(e.target.value)}
+                    type={showPin ? 'text' : 'password'}
+                    inputMode="numeric"
+                    maxLength={8}
+                    placeholder="Enter your PIN"
+                    className="form-input font-mono"
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="toggle-password-btn"
+                    onClick={() => setShowPin(!showPin)}
+                    title={showPin ? 'Hide PIN' : 'Show PIN'}
+                  >
+                    {showPin ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              <button type="submit" className="btn-primary" disabled={busy}>
+                <ChevronRight size={18} /> {busy ? 'Signing in…' : 'Sign In to Shift'}
+              </button>
+            </form>
+          )}
+
+          <div className="login-footer">
+            <ShieldCheck size={14} /> Retail SaaS Grade Security · Rajarajeswari
+          </div>
+        </section>
+
+        <ToastNotice message={message} error={error} />
+      </main>
+    );
+  }
+
+  // ----------------------------------------------------
+  // 2. MAIN APP SHELL
+  // ----------------------------------------------------
+  const currentStatus = me?.attendance?.status || 'out';
+
+  return (
+    <div className="app-container">
+      {/* Top Bar */}
+      <header className="app-topbar">
+        <div className="topbar-brand">
+          <div className="topbar-logo">
+            <Store size={22} />
+          </div>
+          <div>
+            <h1 className="topbar-title">Rajarajeswari</h1>
+            <p className="topbar-subtitle">Staff Attendance</p>
+          </div>
+        </div>
+
+        <div className="topbar-user">
+          {role === 'staff' ? (
+            <div className="user-badge">
+              <span className="user-name">{me?.staff?.name || 'Staff'}</span>
+              <span className="staff-code-pill font-mono">{me?.staff?.code || 'RR001'}</span>
+            </div>
+          ) : (
+            <div className="user-badge">
+              <span className="user-name">Owner Admin</span>
+              <span className="staff-code-pill font-mono">CONSOLE</span>
+            </div>
+          )}
+          <button className="btn-icon-logout" onClick={handleLogout} title="Log Out">
+            <LogOut size={18} />
+          </button>
+        </div>
+      </header>
+
+      {/* ----------------------------------------------------
+          A. STAFF ATTENDANCE SCREEN
+          ---------------------------------------------------- */}
+      {role === 'staff' ? (
+        <div className="staff-layout">
+          {/* Hero Status Card */}
+          <section className="hero-status-card">
+            <p className="section-label">Live System Clock</p>
+            <div className="digital-clock font-mono">
+              {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+            </div>
+            <p className="clock-subtext">
+              {currentTime.toLocaleDateString(undefined, {
+                weekday: 'long',
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+              })}
+            </p>
+
+            {/* Geofence Status Pill */}
+            <div className={`geofence-pill ${geoStatus.state}`}>
+              <span className="pulse-dot" />
+              <span>{geoStatus.text}</span>
+            </div>
+
+            <div className="current-shift-badge">
+              <StatusBadge status={currentStatus} />
+            </div>
+          </section>
+
+          {/* Primary Action Grid (Large Thumb-Friendly Buttons) */}
+          <section className="action-card">
+            <div className="action-card-header">
+              <h3>Attendance Actions</h3>
+              <p>Select action and scan the live QR code at the shop desk</p>
+            </div>
+
+            {/* Large Thumb-Friendly Action Layout */}
+            <div className="attendance-action-grid">
+              {currentStatus === 'out' ? (
+                <button
+                  className="btn-action-primary"
+                  onClick={() => startScanner('in')}
+                  disabled={busy}
+                >
+                  <Store size={22} />
+                  <span>Check In for Shift</span>
+                </button>
+              ) : currentStatus === 'in' ? (
+                <div className="split-action-row">
+                  <button
+                    className="btn-lunch"
+                    onClick={() => startScanner('lunch')}
+                    disabled={busy}
+                  >
+                    <Coffee size={18} />
+                    <span>Start Lunch</span>
+                  </button>
+                  <button
+                    className="btn-checkout"
+                    onClick={() => startScanner('out')}
+                    disabled={busy}
+                  >
+                    <LogOut size={18} />
+                    <span>Check Out</span>
+                  </button>
+                </div>
+              ) : (
+                /* on lunch break */
+                <div className="split-action-row">
+                  <button
+                    className="btn-lunch"
+                    style={{ background: '#ECFDF5', borderColor: '#A7F3D0', color: '#047857' }}
+                    onClick={() => startScanner('lunch')}
+                    disabled={busy}
+                  >
+                    <CheckCircle2 size={18} />
+                    <span>End Lunch (Return)</span>
+                  </button>
+                  <button
+                    className="btn-checkout"
+                    onClick={() => startScanner('out')}
+                    disabled={busy}
+                  >
+                    <LogOut size={18} />
+                    <span>Check Out</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Explicit QR / Barcode Scan Trigger */}
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ justifyContent: 'center', height: '48px', fontSize: '0.92rem' }}
+                onClick={() => startScanner(action)}
+                disabled={busy}
+              >
+                <ScanLine size={19} />
+                <span>Open QR & Barcode Camera</span>
+              </button>
+            </div>
+
+            {/* QR Scanner Container */}
+            {scanOpen && (
+              <div style={{ marginTop: '16px' }}>
+                <div id="qr-reader" className="scanner-view-box" />
+                <button type="button" className="scanner-cancel-btn" onClick={stopScanner}>
+                  Cancel Camera
+                </button>
+              </div>
+            )}
+          </section>
+
+          {/* Today's Timeline Card */}
+          <section className="timeline-card">
+            <div className="timeline-header">
+              <span className="section-label">Today's Shift Log</span>
+              <span className="timeline-hours-pill font-mono">
+                {fmtDuration(me?.attendance?.net_work_minutes || 0)} Worked
+              </span>
+            </div>
+
+            <div className="timeline-list">
+              <div className={`timeline-item ${me?.attendance?.clock_in ? 'active' : ''}`}>
+                <span className="timeline-dot" />
+                <span className="timeline-label">Entry (Clock In)</span>
+                <span className="timeline-time font-mono">{fmtTime(me?.attendance?.clock_in)}</span>
+              </div>
+
+              <div className={`timeline-item ${me?.attendance?.break_started ? 'active' : ''}`}>
+                <span className="timeline-dot" />
+                <span className="timeline-label">Lunch Started</span>
+                <span className="timeline-time font-mono">{fmtTime(me?.attendance?.break_started)}</span>
+              </div>
+
+              <div className={`timeline-item ${(me?.attendance?.total_break_minutes || 0) > 0 ? 'active' : ''}`}>
+                <span className="timeline-dot" />
+                <span className="timeline-label">Lunch Duration</span>
+                <span className="timeline-time font-mono">
+                  {(me?.attendance?.total_break_minutes || 0) > 0
+                    ? `${me?.attendance?.total_break_minutes} mins`
+                    : '—'}
+                </span>
+              </div>
+
+              <div className={`timeline-item ${me?.attendance?.clock_out ? 'active' : ''}`}>
+                <span className="timeline-dot" />
+                <span className="timeline-label">Exit (Clock Out)</span>
+                <span className="timeline-time font-mono">{fmtTime(me?.attendance?.clock_out)}</span>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : (
+        /* ----------------------------------------------------
+            B. OWNER DASHBOARD LAYOUT
+            ---------------------------------------------------- */
+        <div>
+          <div className="owner-header-row">
+            <div className="owner-title-block">
+              <p className="section-label">Retail Operations</p>
+              <h2>Attendance & Staff Console</h2>
+              <p>Real-time shop presence, geofence audit, and biometric QR challenge</p>
+            </div>
+            <button className="btn-secondary" onClick={refreshOwner}>
+              <RefreshCw size={15} /> Refresh Data
+            </button>
+          </div>
+
+          {/* Top Summary Strip: 3-Column KPI Grid */}
+          <div className="kpi-grid">
+            <div className="kpi-card">
+              <div className="kpi-icon staff">
+                <Users size={24} />
+              </div>
+              <div>
+                <span className="kpi-label">Total Staff</span>
+                <div className="kpi-value font-mono">{staff.length}</div>
+              </div>
+            </div>
+
+            <div className="kpi-card">
+              <div className="kpi-icon present">
+                <Store size={24} />
+              </div>
+              <div>
+                <span className="kpi-label">Present Now</span>
+                <div className="kpi-value font-mono">
+                  {board.filter(b => b.status === 'in').length}
+                </div>
+              </div>
+            </div>
+
+            <div className="kpi-card">
+              <div className="kpi-icon break">
+                <Coffee size={24} />
+              </div>
+              <div>
+                <span className="kpi-label">On Break / Absent</span>
+                <div className="kpi-value font-mono">
+                  {board.filter(b => b.status === 'lunch' || b.status === 'out').length}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <nav className="dashboard-tabs">
+            {[
+              ['board', 'Live Board', Users],
+              ['qr', 'Shop QR', QrCode],
+              ['staff', 'Staff Directory', User],
+              ['devices', 'Registered Phones', Smartphone],
+              ['logs', 'Security Audit Logs', ShieldCheck]
+            ].map(([k, label, IconComponent]) => (
+              <button
+                key={k}
+                className={`dashboard-tab-btn ${tab === k ? 'active' : ''}`}
+                onClick={() => setTab(k)}
+              >
+                <IconComponent size={16} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
+
+          {/* Action Bar */}
+          {tab === 'board' && (
+            <div className="action-bar">
+              <div className="search-input-wrapper">
+                <Search size={16} className="search-icon" />
+                <input
+                  type="text"
+                  placeholder="Filter by name or ID (e.g. RR001)…"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="search-input"
+                />
+              </div>
+
+              <div className="action-buttons-group">
+                <button className="btn-accent" onClick={() => setTab('staff')}>
+                  <Plus size={16} /> Add Staff
+                </button>
+                <button className="btn-secondary" onClick={() => setTab('qr')}>
+                  <QrCode size={16} /> Generate QR
+                </button>
+                <a className="btn-secondary" href="/api/owner/export.csv" download>
+                  <Download size={16} /> Export CSV
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 1: LIVE BOARD */}
+          {tab === 'board' && (
+            <section className="content-card">
+              <div className="card-header">
+                <h3 className="card-title">Today's Attendance Status</h3>
+                <span className="geofence-pill inside">
+                  <span className="pulse-dot" />
+                  <span>LIVE REFRESHING</span>
+                </span>
+              </div>
+
+              {/* Desktop Table View */}
+              <div className="table-responsive desktop-table-view">
+                <table className="saas-table">
+                  <thead>
+                    <tr>
+                      <th>Staff Member</th>
+                      <th>Staff ID</th>
+                      <th>Current Status</th>
+                      <th>Entry Time</th>
+                      <th>Lunch Duration</th>
+                      <th>Exit Time</th>
+                      <th>Total Hours</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredBoard.map(row => (
+                      <tr key={row.id}>
+                        <td>
+                          <div className="staff-table-cell">
+                            <div className="staff-avatar-mini">
+                              {(row.name || 'S').slice(0, 1).toUpperCase()}
+                            </div>
+                            <span className="staff-name-text">{row.name}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <span className="staff-code-pill font-mono">{row.code}</span>
+                        </td>
+                        <td>
+                          <StatusBadge status={row.status} />
+                        </td>
+                        <td className="font-mono">{fmtTime(row.clock_in)}</td>
+                        <td className="font-mono">{row.total_break_minutes || 0} mins</td>
+                        <td className="font-mono">{fmtTime(row.clock_out)}</td>
+                        <td className="font-mono" style={{ fontWeight: 600 }}>
+                          {fmtDuration(row.net_work_minutes || 0)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!filteredBoard.length && (
+                  <div style={{ padding: '40px', textAlign: 'center', color: '#94A3B8' }}>
+                    No staff records found matching criteria.
+                  </div>
+                )}
+              </div>
+
+              {/* Mobile Scannable Cards View */}
+              <div className="mobile-card-list">
+                {filteredBoard.map(row => (
+                  <div className="mobile-attendance-card" key={row.id}>
+                    <div className="mobile-card-top">
+                      <div className="staff-table-cell">
+                        <div className="staff-avatar-mini">
+                          {(row.name || 'S').slice(0, 1).toUpperCase()}
+                        </div>
+                        <div>
+                          <span className="staff-name-text">{row.name}</span>
+                          <span className="staff-code-pill font-mono" style={{ marginLeft: '6px' }}>
+                            {row.code}
+                          </span>
+                        </div>
+                      </div>
+                      <StatusBadge status={row.status} />
+                    </div>
+
+                    <div className="mobile-card-grid">
+                      <div className="mobile-grid-item">
+                        <span>Entry</span>
+                        <strong className="font-mono">{fmtTime(row.clock_in)}</strong>
+                      </div>
+                      <div className="mobile-grid-item">
+                        <span>Lunch</span>
+                        <strong className="font-mono">{row.total_break_minutes || 0}m</strong>
+                      </div>
+                      <div className="mobile-grid-item">
+                        <span>Exit</span>
+                        <strong className="font-mono">{fmtTime(row.clock_out)}</strong>
+                      </div>
+                      <div className="mobile-grid-item">
+                        <span>Net Time</span>
+                        <strong className="font-mono">{fmtDuration(row.net_work_minutes || 0)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* TAB 2: SHOP QR */}
+          {tab === 'qr' && (
+            <section className="content-card qr-container-card">
+              <div className="card-header" style={{ justifyContent: 'center' }}>
+                <h3 className="card-title">Live Shop Screen QR</h3>
+              </div>
+              <p style={{ color: '#64748B', fontSize: '0.9rem', marginTop: '12px' }}>
+                Mount this display at the shop checkout or entry desk. Staff scan this QR from their registered smartphones.
+              </p>
+
+              {qr ? (
+                <>
+                  <div className="qr-code-frame">
+                    <img src={qr.dataUrl} alt="Live rotating QR attendance code" />
+                  </div>
+                  <div className="qr-countdown font-mono">
+                    <Clock size={16} />
+                    <span>Expires at {new Date(qr.expiresAt * 1000).toLocaleTimeString()}</span>
+                  </div>
+                </>
+              ) : (
+                <div style={{ padding: '60px 20px', color: '#94A3B8' }}>
+                  Generating cryptographically signed QR…
+                </div>
+              )}
+
+              <p className="login-footer" style={{ marginTop: '20px' }}>
+                <ShieldCheck size={16} /> HMAC-SHA256 Token Signature · 30-Second Rotation · Single-Use Anti-Replay
+              </p>
+            </section>
+          )}
+
+          {/* TAB 3: STAFF DIRECTORY */}
+          {tab === 'staff' && (
+            <div className="split-directory-grid">
+              {/* Add Staff Card */}
+              <div className="content-card staff-form-card">
+                <h3 className="card-title" style={{ marginBottom: '16px' }}>
+                  Add Staff Member
+                </h3>
+                <form onSubmit={handleAddStaff}>
+                  <div className="form-group">
+                    <label className="form-label">Full Name</label>
+                    <input
+                      type="text"
+                      value={newStaffName}
+                      onChange={e => setNewStaffName(e.target.value)}
+                      placeholder="e.g. Priya Sharma"
+                      className="form-input no-left-icon"
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Staff Code</label>
+                    <input
+                      type="text"
+                      value={newStaffCode}
+                      onChange={e => setNewStaffCode(e.target.value.toUpperCase())}
+                      placeholder="e.g. RR005"
+                      className="form-input no-left-icon font-mono"
+                      style={{ textTransform: 'uppercase' }}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Temporary PIN</label>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={8}
+                      value={newStaffPin}
+                      onChange={e => setNewStaffPin(e.target.value)}
+                      placeholder="4–8 digit PIN"
+                      className="form-input no-left-icon font-mono"
+                      required
+                    />
+                  </div>
+
+                  <button type="submit" className="btn-primary">
+                    <Plus size={16} /> Save Staff Member
+                  </button>
+                </form>
+              </div>
+
+              {/* Staff Directory List */}
+              <div className="content-card directory-list">
+                <div className="card-header" style={{ paddingLeft: '0', paddingRight: '0' }}>
+                  <h3 className="card-title">Staff Members ({staff.length})</h3>
+                </div>
+                {staff.map(s => (
+                  <div className="directory-row" key={s.id}>
+                    <div className="staff-table-cell">
+                      <div className="staff-avatar-mini">
+                        {(s.name || 'S').slice(0, 1).toUpperCase()}
+                      </div>
+                      <div>
+                        <strong style={{ display: 'block', fontSize: '0.92rem' }}>{s.name}</strong>
+                        <span className="staff-code-pill font-mono" style={{ fontSize: '0.72rem' }}>
+                          {s.code}
+                        </span>
+                        <span
+                          style={{
+                            marginLeft: '8px',
+                            fontSize: '0.75rem',
+                            color: s.active ? '#059669' : '#94A3B8'
+                          }}
+                        >
+                          {s.active ? '● Active' : '● Inactive'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => handleToggleStaff(s.id)}
+                    >
+                      {s.active ? 'Deactivate' : 'Activate'}
+                    </button>
+                  </div>
+                ))}
+                {!staff.length && (
+                  <div style={{ padding: '30px 0', textAlign: 'center', color: '#94A3B8' }}>
+                    No staff members added yet.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: REGISTERED DEVICES */}
+          {tab === 'devices' && (
+            <section className="content-card">
+              <div className="card-header">
+                <div>
+                  <h3 className="card-title">Registered Staff Smartphones</h3>
+                  <p style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '2px' }}>
+                    First-time logins require owner device approval before shifts can be logged.
+                  </p>
+                </div>
+              </div>
+
+              <div className="table-responsive">
+                <table className="saas-table">
+                  <thead>
+                    <tr>
+                      <th>Staff Member</th>
+                      <th>Device Fingerprint</th>
+                      <th>Status</th>
+                      <th>Registered At</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {devices.map(d => (
+                      <tr key={d.id}>
+                        <td>
+                          <strong>{d.name}</strong>
+                          <span className="staff-code-pill font-mono" style={{ marginLeft: '6px' }}>
+                            {d.code}
+                          </span>
+                        </td>
+                        <td className="font-mono" style={{ fontSize: '0.78rem', color: '#64748B' }}>
+                          {d.device_key.slice(0, 16)}…
+                        </td>
+                        <td>
+                          <StatusBadge status={d.approved ? 'approved' : 'pending'} />
+                        </td>
+                        <td className="font-mono">{new Date(d.created_at).toLocaleDateString()}</td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            {!d.approved && (
+                              <button
+                                className="btn-accent"
+                                style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                                onClick={() => handleDeviceAction(d.id, 'approve')}
+                              >
+                                <Check size={14} /> Approve
+                              </button>
+                            )}
+                            <button
+                              className="btn-secondary"
+                              style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                              onClick={() => handleDeviceAction(d.id, 'revoke')}
+                            >
+                              Revoke
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!devices.length && (
+                  <div style={{ padding: '40px', textAlign: 'center', color: '#94A3B8' }}>
+                    No smartphone devices registered yet.
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* TAB 5: SECURITY AUDIT LOGS */}
+          {tab === 'logs' && (
+            <section className="content-card">
+              <div className="card-header">
+                <div>
+                  <h3 className="card-title">Security & Scan Audit Trail</h3>
+                  <p style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '2px' }}>
+                    Comprehensive tamper-proof log of all GPS coordinates and QR verifications
+                  </p>
+                </div>
+                <a className="btn-secondary" href="/api/owner/export.csv" download>
+                  <Download size={16} /> Export Audit Log
+                </a>
+              </div>
+
+              <div className="table-responsive">
+                <table className="saas-table">
+                  <thead>
+                    <tr>
+                      <th>Timestamp</th>
+                      <th>Staff Member</th>
+                      <th>Result</th>
+                      <th>Coordinates (GPS)</th>
+                      <th>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logs.map(log => (
+                      <tr key={log.id}>
+                        <td className="font-mono" style={{ fontSize: '0.8rem' }}>
+                          {new Date(log.attempted_at).toLocaleString()}
+                        </td>
+                        <td>
+                          <strong>{log.name || 'Unknown'}</strong>
+                          {log.code && (
+                            <span className="staff-code-pill font-mono" style={{ marginLeft: '6px' }}>
+                              {log.code}
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <StatusBadge status={log.result} />
+                        </td>
+                        <td className="font-mono" style={{ fontSize: '0.8rem' }}>
+                          {log.latitude && log.longitude
+                            ? `${log.latitude.toFixed(4)}, ${log.longitude.toFixed(4)}`
+                            : '—'}
+                        </td>
+                        <td style={{ fontSize: '0.85rem' }}>{log.detail}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!logs.length && (
+                  <div style={{ padding: '40px', textAlign: 'center', color: '#94A3B8' }}>
+                    No scan events recorded yet.
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+        </div>
+      )}
+
+      <footer className="app-footer-credit">
+        Rajarajeswari Staff Attendance · Modern Enterprise Retail SaaS
+      </footer>
+
+      <ToastNotice message={message} error={error} />
+    </div>
+  );
+}
+
+// Subcomponents
+function StatusBadge({ status }) {
+  const s = String(status || 'out').toLowerCase();
+  let label = s.replaceAll('_', ' ');
+
+  if (s === 'in' || s === 'present') label = 'Present';
+  else if (s === 'lunch' || s === 'break') label = 'On Lunch';
+  else if (s === 'out' || s === 'absent') label = 'Checked Out';
+
+  return (
+    <span className={`status-badge ${s}`}>
+      <span className="pulse-dot" style={{ width: 6, height: 6 }} />
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function ToastNotice({ message, error }) {
+  if (!message && !error) return null;
+  const isErr = Boolean(error);
+  return (
+    <div className={`saas-toast ${isErr ? 'bad' : 'good'}`}>
+      {isErr ? <AlertTriangle size={17} /> : <CheckCircle2 size={17} />}
+      <span>{error || message}</span>
+    </div>
+  );
+}
+
+createRoot(document.getElementById('root')).render(<App />);
