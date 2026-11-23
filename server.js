@@ -12,8 +12,21 @@ import QRCode from 'qrcode';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
+import os from 'node:os';
 
 dotenv.config();
+
+const getLocalIp = () => {
+  const nets = os.networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === 'IPv4' && !net.internal) {
+        return net.address;
+      }
+    }
+  }
+  return 'localhost';
+};
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -225,16 +238,17 @@ app.get('/api/status', (req, res) => {
     role: req.session.role || null,
     shopName: 'Rajarajeswari',
     shopLat: SHOP_LAT,
-    shopLng: SHOP_LNG
+    shopLng: SHOP_LNG,
+    localIp: getLocalIp()
   });
 });
 
-// Unified login for both Owner and Staff (One form: ID + PIN)
+// Unified login for both Owner and Staff (One form: ID + PIN or QR Token)
 app.post(
   '/api/login',
   rateLimit({
     windowMs: 15 * 60 * 1000,
-    limit: 15,
+    limit: 25,
     standardHeaders: true,
     legacyHeaders: false
   }),
@@ -243,6 +257,44 @@ app.post(
     const id = rawId.toUpperCase();
     const pin = String(req.body.pin || '');
     const deviceKey = String(req.body.deviceKey || '');
+    const authToken = String(req.body.authToken || req.body.auth || '');
+
+    // 1. QR Code Direct Login
+    if (authToken && authToken.includes('.')) {
+      const parts = authToken.split('.');
+      if (parts.length === 2 && safeEqual(sign(parts[0]), parts[1])) {
+        try {
+          const payload = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+          if (payload.code) {
+            const staff = db.prepare('SELECT * FROM staff WHERE code = ? AND active = 1').get(payload.code);
+            if (staff) {
+              let device = db.prepare('SELECT * FROM devices WHERE staff_id = ? AND device_key = ?').get(staff.id, deviceKey);
+              if (!device) {
+                db.prepare('INSERT INTO devices (staff_id, device_key, approved, created_at) VALUES (?, ?, 1, ?)').run(staff.id, deviceKey, nowIso());
+                logScan(staff.id, null, deviceKey, 'device_approved', 'Device registered via QR Code Login');
+              } else if (!device.approved) {
+                db.prepare('UPDATE devices SET approved = 1 WHERE id = ?').run(device.id);
+              }
+
+              return req.session.regenerate(err => {
+                if (err) return res.status(500).json({ error: 'Session error' });
+                req.session.role = 'staff';
+                req.session.staffId = staff.id;
+                req.session.deviceKey = deviceKey;
+                req.session.save(err => {
+                  if (err) return res.status(500).json({ error: 'Session save failed' });
+                  res.json({
+                    ok: true,
+                    role: 'staff',
+                    staff: { name: staff.name, code: staff.code }
+                  });
+                });
+              });
+            }
+          }
+        } catch {}
+      }
+    }
 
     if (!id || !pin) {
       return res.status(400).json({ error: 'Please enter both ID and PIN.' });
@@ -253,7 +305,7 @@ app.post(
 
     if (isOwnerId) {
       if (!/^\d{4,8}$/.test(pin) || !expectedOwnerPin || !safeEqual(pin, expectedOwnerPin)) {
-        return res.status(401).json({ error: 'Invalid Owner ID or PIN.' });
+        return res.status(401).json({ error: 'Invalid Admin ID or PIN.' });
       }
 
       return req.session.regenerate(err => {
@@ -607,6 +659,28 @@ app.get('/api/owner/board', ownerOnly, (req, res) => {
   );
 });
 
+// Staff Login QR Code generator
+app.get('/api/owner/staff/:id/login-qr', ownerOnly, async (req, res) => {
+  const staff = db.prepare('SELECT id, name, code FROM staff WHERE id = ?').get(Number(req.params.id));
+  if (!staff) return res.status(404).json({ error: 'Staff member not found' });
+
+  const payload = { code: staff.code, t: Date.now() };
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const token = body + '.' + sign(body);
+
+  const localIp = getLocalIp();
+  const directLoginUrl = `http://${localIp}:5173/?auth=${token}`;
+  const dataUrl = await QRCode.toDataURL(directLoginUrl, { width: 320, margin: 2 });
+
+  res.json({
+    ok: true,
+    name: staff.name,
+    code: staff.code,
+    loginUrl: directLoginUrl,
+    dataUrl
+  });
+});
+
 // Scan logs
 app.get('/api/owner/logs', ownerOnly, (req, res) => {
   res.json(
@@ -618,6 +692,49 @@ app.get('/api/owner/logs', ownerOnly, (req, res) => {
       LIMIT 250
     `).all()
   );
+});
+
+// Clear Security Audit Logs
+app.delete('/api/owner/logs', ownerOnly, (req, res) => {
+  db.prepare('DELETE FROM scans').run();
+  res.json({ ok: true, message: 'Security audit logs cleared' });
+});
+
+// Export Security Audit Logs CSV
+app.get('/api/owner/export-logs.csv', ownerOnly, (req, res) => {
+  const rows = db.prepare(`
+    SELECT sc.id, sc.attempted_at, s.code, s.name, sc.result,
+    sc.latitude, sc.longitude, sc.device_key, sc.detail
+    FROM scans sc
+    LEFT JOIN staff s ON s.id = sc.staff_id
+    ORDER BY sc.id DESC
+  `).all();
+
+  const cols = [
+    'id',
+    'attempted_at',
+    'code',
+    'name',
+    'result',
+    'latitude',
+    'longitude',
+    'device_key',
+    'detail'
+  ];
+
+  const esc = value =>
+    '"' + String(value ?? '').replace(/"/g, '""') + '"';
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader(
+    'Content-Disposition',
+    'attachment; filename="rajarajeswari-security-audit-logs.csv"'
+  );
+
+  res.send([
+    cols.join(','),
+    ...rows.map(row => cols.map(col => esc(row[col])).join(','))
+  ].join('\r\n'));
 });
 
 // Export attendance CSV

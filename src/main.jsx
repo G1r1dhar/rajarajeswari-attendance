@@ -35,7 +35,9 @@ import {
   Calendar,
   Trash2,
   Camera,
-  Upload
+  Upload,
+  X,
+  Filter
 } from 'lucide-react';
 import './style.css';
 
@@ -84,6 +86,7 @@ export function App() {
   const [loginId, setLoginId] = useState('');
   const [loginPin, setLoginPin] = useState('');
   const [showPin, setShowPin] = useState(false);
+  const [loginScannerOpen, setLoginScannerOpen] = useState(false);
 
   // Admin Data States
   const [staff, setStaff] = useState([]);
@@ -98,11 +101,18 @@ export function App() {
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'present' | 'absent' | 'lunch'
 
+  // Security Audit Logs Filter
+  const [logFilter, setLogFilter] = useState('all'); // 'all' | 'success' | 'failed' | 'devices'
+  const [logSearchQuery, setLogSearchQuery] = useState('');
+
   // Add Staff form states
   const [newStaffName, setNewStaffName] = useState('');
   const [newStaffCode, setNewStaffCode] = useState('');
   const [newStaffPin, setNewStaffPin] = useState('');
   const [createdStaffCreds, setCreatedStaffCreds] = useState(null);
+
+  // Staff Login QR Code Modal
+  const [activeStaffQrModal, setActiveStaffQrModal] = useState(null);
 
   // Admin Unique PIN Management
   const [adminNewPin, setAdminNewPin] = useState('');
@@ -120,9 +130,17 @@ export function App() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [geoStatus, setGeoStatus] = useState({ state: 'checking', text: 'Checking Shop Geofence...' });
   const scanner = useRef(null);
+  const loginScanner = useRef(null);
   const fileInputRef = useRef(null);
 
-  const portalUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173';
+  // Local Network IP for smartphones on same Wi-Fi
+  const networkIp = status?.localIp || '192.168.1.15';
+  const phonePortalUrl =
+    typeof window !== 'undefined'
+      ? window.location.hostname === 'localhost'
+        ? `http://${networkIp}:${window.location.port || '5173'}`
+        : window.location.origin
+      : 'http://localhost:5173';
 
   const flash = (msg, err = '') => {
     setMessage(msg);
@@ -149,12 +167,60 @@ export function App() {
         if (res.role) setRole(res.role);
       })
       .catch(e => flash('', e.message));
+  }, []);
 
-    // Generate Portal QR for Admin screen
-    QRCode.toDataURL(portalUrl, { width: 180, margin: 1 })
-      .then(setPortalQrData)
-      .catch(() => {});
-  }, [portalUrl]);
+  // Generate Phone Portal QR Code once host is known
+  useEffect(() => {
+    if (phonePortalUrl) {
+      QRCode.toDataURL(phonePortalUrl, { width: 200, margin: 1 })
+        .then(setPortalQrData)
+        .catch(() => {});
+    }
+  }, [phonePortalUrl]);
+
+  // ----------------------------------------------------
+  // AUTO-LOGIN VIA QR CODE URL PARAMS (?auth=... or ?login=...)
+  // ----------------------------------------------------
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const authToken = params.get('auth');
+    const loginCode = params.get('login') || params.get('code');
+    const pinParam = params.get('pin');
+
+    if (authToken) {
+      setBusy(true);
+      api('/login', {
+        method: 'POST',
+        body: JSON.stringify({ authToken, deviceKey: getDeviceKey() })
+      })
+        .then(d => {
+          if (d.role === 'staff') {
+            setRole('staff');
+            setMe({ staff: d.staff, attendance: null });
+            flash(`Signed in as ${d.staff.name} via QR Code!`);
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        })
+        .catch(err => flash('', `QR Login failed: ${err.message}`))
+        .finally(() => setBusy(false));
+    } else if (loginCode && pinParam) {
+      setBusy(true);
+      api('/login', {
+        method: 'POST',
+        body: JSON.stringify({ id: loginCode, pin: pinParam, deviceKey: getDeviceKey() })
+      })
+        .then(d => {
+          if (d.role === 'staff') {
+            setRole('staff');
+            setMe({ staff: d.staff, attendance: null });
+            flash(`Signed in as ${d.staff.name}`);
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        })
+        .catch(err => flash('', err.message))
+        .finally(() => setBusy(false));
+    }
+  }, []);
 
   // Fetch Admin Data
   const refreshAdmin = async (targetDate = selectedDate) => {
@@ -274,6 +340,66 @@ export function App() {
     }
   };
 
+  // Login QR Scanner (Scanning a staff card / login QR code directly from login screen)
+  const startLoginScanner = async () => {
+    setLoginScannerOpen(true);
+    setTimeout(async () => {
+      try {
+        const q = new Html5Qrcode('login-qr-reader');
+        loginScanner.current = q;
+        const cameras = await Html5Qrcode.getCameras().catch(() => []);
+        const cameraIdOrConfig = cameras.length ? { facingMode: 'environment' } : true;
+
+        await q.start(
+          cameraIdOrConfig,
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          async decoded => {
+            await q.stop();
+            loginScanner.current = null;
+            setLoginScannerOpen(false);
+
+            // Check if scanned decoded is URL with ?auth= or direct token
+            let token = decoded;
+            if (decoded.includes('?auth=')) {
+              token = new URL(decoded).searchParams.get('auth') || decoded;
+            }
+
+            setBusy(true);
+            try {
+              const res = await api('/login', {
+                method: 'POST',
+                body: JSON.stringify({ authToken: token, deviceKey: getDeviceKey() })
+              });
+              if (res.role === 'staff') {
+                setRole('staff');
+                setMe({ staff: res.staff, attendance: null });
+                flash(`Signed in as ${res.staff.name}!`);
+              }
+            } catch (err) {
+              flash('', `QR Login failed: ${err.message}`);
+            } finally {
+              setBusy(false);
+            }
+          },
+          () => {}
+        );
+      } catch (err) {
+        setLoginScannerOpen(false);
+        flash('', `Camera error: ${err.message || err}. Please sign in using ID and PIN.`);
+      }
+    }, 180);
+  };
+
+  const stopLoginScanner = async () => {
+    try {
+      if (loginScanner.current) {
+        await loginScanner.current.stop();
+        loginScanner.current = null;
+      }
+    } catch {}
+    setLoginScannerOpen(false);
+  };
+
   const handleLogout = async () => {
     try {
       await api('/logout', { method: 'POST' });
@@ -305,7 +431,7 @@ export function App() {
         name: staffName,
         code: staffCode,
         pin: staffPin,
-        portalUrl
+        portalUrl: phonePortalUrl
       });
 
       setNewStaffName('');
@@ -328,6 +454,31 @@ export function App() {
       refreshAdmin(selectedDate);
     } catch (e) {
       flash('', e.message);
+    }
+  };
+
+  const openStaffLoginQrModal = async staffId => {
+    try {
+      setBusy(true);
+      const res = await api(`/owner/staff/${staffId}/login-qr`);
+      setActiveStaffQrModal(res);
+    } catch (err) {
+      flash('', err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleClearAuditLogs = async () => {
+    if (!window.confirm('Are you sure you want to permanently clear all security audit logs?')) {
+      return;
+    }
+    try {
+      await api('/owner/logs', { method: 'DELETE' });
+      flash('Security audit logs cleared.');
+      refreshAdmin(selectedDate);
+    } catch (err) {
+      flash('', err.message);
     }
   };
 
@@ -382,12 +533,10 @@ export function App() {
     setScanOpen(true);
     setScanMethod('camera');
 
-    // Slight delay to ensure DOM element exists
     setTimeout(async () => {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        // Fallback for non-https/non-supported browser
         setScanMethod('passcode');
-        flash('Camera direct stream unavailable. Please enter shop passcode or upload photo.');
+        flash('Direct camera preview restricted. Please enter shop passcode or upload photo.');
         return;
       }
 
@@ -411,7 +560,7 @@ export function App() {
       } catch (e) {
         console.warn('Camera start error:', e);
         setScanMethod('passcode');
-        flash('', `Camera preview blocked (${e.message || e}). Use passcode or upload photo.`);
+        flash('', `Camera blocked (${e.message || e}). Use passcode or snap photo.`);
       }
     }, 200);
   };
@@ -437,7 +586,7 @@ export function App() {
       await submitAttendance(decoded, action);
       stopScanner();
     } catch (err) {
-      flash('', 'Could not detect QR code in that image. Try entering the 6-character shop passcode.');
+      flash('', 'Could not detect QR code in that photo. Try entering the 6-character shop passcode.');
     } finally {
       setBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -531,6 +680,39 @@ export function App() {
     [board]
   );
 
+  // Filtered Security Audit Logs
+  const filteredLogs = useMemo(() => {
+    let result = logs;
+    if (logFilter === 'success') {
+      result = result.filter(l => l.result === 'success' || l.result === 'device_approved');
+    } else if (logFilter === 'failed') {
+      result = result.filter(
+        l =>
+          l.result === 'failed_geofence' ||
+          l.result === 'failed_gps' ||
+          l.result === 'failed_login' ||
+          l.result === 'failed_qr' ||
+          l.result === 'invalid_passcode' ||
+          l.result === 'blocked'
+      );
+    } else if (logFilter === 'devices') {
+      result = result.filter(l => l.result?.includes('device'));
+    }
+
+    if (logSearchQuery) {
+      const q = logSearchQuery.toLowerCase();
+      result = result.filter(
+        l =>
+          l.name?.toLowerCase().includes(q) ||
+          l.code?.toLowerCase().includes(q) ||
+          l.detail?.toLowerCase().includes(q) ||
+          l.result?.toLowerCase().includes(q) ||
+          l.device_key?.toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [logs, logFilter, logSearchQuery]);
+
   // ----------------------------------------------------
   // 1. UNIFIED LOGIN SCREEN (ONLY ID AND PIN)
   // ----------------------------------------------------
@@ -548,7 +730,7 @@ export function App() {
         <section className="login-card">
           <div className="login-card-header">
             <h2>Sign In</h2>
-            <p>Enter your assigned ID and PIN to access the portal</p>
+            <p>Enter your assigned ID and PIN or scan your QR to access</p>
           </div>
 
           <form onSubmit={handleUnifiedLogin}>
@@ -615,6 +797,29 @@ export function App() {
               <ChevronRight size={18} /> {busy ? 'Verifying Credentials…' : 'Sign In'}
             </button>
           </form>
+
+          {/* Quick Scan to Login Action */}
+          <button
+            type="button"
+            className="btn-qr-login-pill"
+            onClick={startLoginScanner}
+            disabled={busy}
+          >
+            <QrCode size={18} />
+            <span>Scan QR Code to Sign In</span>
+          </button>
+
+          {loginScannerOpen && (
+            <div className="scanner-container-card" style={{ marginTop: '16px' }}>
+              <div id="login-qr-reader" className="scanner-view-box" style={{ minHeight: '250px' }} />
+              <p style={{ fontSize: '0.8rem', color: '#64748B', textAlign: 'center', marginTop: '6px' }}>
+                Scan your personalized Staff Login QR code to sign in automatically
+              </p>
+              <button type="button" className="scanner-cancel-btn" onClick={stopLoginScanner}>
+                Cancel Camera
+              </button>
+            </div>
+          )}
 
           <div className="login-footer">
             <ShieldCheck size={14} /> Retail SaaS Grade Security · Rajarajeswari
@@ -972,7 +1177,6 @@ export function App() {
           {/* TAB 1: ATTENDANCE CALENDAR & LIVE BOARD */}
           {tab === 'board' && (
             <div>
-              {/* Calendar Selector Bar */}
               <div className="calendar-bar">
                 <div className="calendar-input-group">
                   <Calendar size={18} color="#064E3B" />
@@ -1005,7 +1209,6 @@ export function App() {
                   </button>
                 </div>
 
-                {/* Status Filter Buttons */}
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                   <button
                     type="button"
@@ -1033,7 +1236,6 @@ export function App() {
                 </div>
               </div>
 
-              {/* Action Bar */}
               <div className="action-bar">
                 <div className="search-input-wrapper">
                   <Search size={16} className="search-icon" />
@@ -1072,7 +1274,6 @@ export function App() {
                   </span>
                 </div>
 
-                {/* Desktop Table View */}
                 <div className="table-responsive desktop-table-view">
                   <table className="saas-table">
                     <thead>
@@ -1120,7 +1321,6 @@ export function App() {
                   )}
                 </div>
 
-                {/* Mobile Scannable Cards View */}
                 <div className="mobile-card-list">
                   {filteredBoard.map(row => (
                     <div className="mobile-attendance-card" key={row.id}>
@@ -1180,7 +1380,6 @@ export function App() {
                     <img src={qr.dataUrl} alt="Live rotating QR attendance code" />
                   </div>
 
-                  {/* 6-Character Live Passcode */}
                   {qr.passcode && (
                     <div className="qr-passcode-display">
                       <span>Live 6-Character Passcode</span>
@@ -1213,18 +1412,17 @@ export function App() {
                 <div className="portal-link-header">
                   <div style={{ flex: 1 }}>
                     <h4 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#064E3B' }}>
-                      Where Staff Can Log In
+                      Where Staff Can Log In (Network URL for Phones)
                     </h4>
                     <p style={{ fontSize: '0.85rem', color: '#475569', marginTop: '3px' }}>
-                      Staff can open this portal URL on their phone browser to sign in and mark attendance:
+                      Staff smartphones on the shop Wi-Fi can open this network address or scan the QR code to access the portal:
                     </p>
                     <div className="portal-url-badge" style={{ marginTop: '10px' }}>
                       <Smartphone size={16} />
-                      <span>{portalUrl}</span>
+                      <span>{phonePortalUrl}</span>
                     </div>
                   </div>
 
-                  {/* Instant QR Code for staff to scan and open the login page directly */}
                   {portalQrData && (
                     <div style={{ textAlign: 'center', background: '#F8FAFC', padding: '10px', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
                       <img src={portalQrData} alt="Scan to open login portal" style={{ width: 110, height: 110, display: 'block' }} />
@@ -1239,7 +1437,7 @@ export function App() {
                     style={{ padding: '8px 14px', fontSize: '0.82rem' }}
                     onClick={() =>
                       copyToClipboard(
-                        `Rajarajeswari Staff Attendance Portal:\nOpen this link: ${portalUrl}\nEnter your assigned Staff ID and PIN to clock in.`,
+                        `Rajarajeswari Staff Attendance Portal:\nOpen this link: ${phonePortalUrl}\nEnter your assigned Staff ID and PIN to clock in.`,
                         'Portal link & instructions copied!'
                       )
                     }
@@ -1249,7 +1447,7 @@ export function App() {
                   <a
                     className="btn-secondary"
                     style={{ padding: '8px 14px', fontSize: '0.82rem' }}
-                    href={portalUrl}
+                    href={phonePortalUrl}
                     target="_blank"
                     rel="noreferrer"
                   >
@@ -1405,7 +1603,7 @@ export function App() {
                   </div>
                 </div>
 
-                {/* Staff Directory List (with Delete Button) */}
+                {/* Staff Directory List (with Login QR and Delete Button) */}
                 <div className="content-card directory-list">
                   <div className="card-header" style={{ paddingLeft: '0', paddingRight: '0' }}>
                     <h3 className="card-title">Staff Members ({staff.length})</h3>
@@ -1433,14 +1631,25 @@ export function App() {
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        {/* Instant QR Code Login Generator Button */}
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ padding: '6px 10px', fontSize: '0.78rem' }}
+                          onClick={() => openStaffLoginQrModal(s.id)}
+                          title="Show Staff Direct Login QR Code"
+                        >
+                          <QrCode size={13} /> QR Login
+                        </button>
+
                         <button
                           type="button"
                           className="btn-secondary"
                           style={{ padding: '6px 10px', fontSize: '0.78rem' }}
                           onClick={() =>
                             copyToClipboard(
-                              `Staff Login: ID=${s.code} | URL=${portalUrl}`,
+                              `Staff Login: ID=${s.code} | URL=${phonePortalUrl}`,
                               `Copied ${s.name}'s login details!`
                             )
                           }
@@ -1464,7 +1673,7 @@ export function App() {
                           onClick={() => handleDeleteStaff(s.id, s.name, s.code)}
                           title="Delete staff member"
                         >
-                          <Trash2 size={13} /> Delete
+                          <Trash2 size={13} />
                         </button>
                       </div>
                     </div>
@@ -1551,19 +1760,89 @@ export function App() {
             </section>
           )}
 
-          {/* TAB 5: SECURITY AUDIT LOGS */}
+          {/* TAB 5: CONTINUED & ENHANCED SECURITY AUDIT LOGS */}
           {tab === 'logs' && (
             <section className="content-card">
-              <div className="card-header">
+              <div className="card-header" style={{ flexWrap: 'wrap' }}>
                 <div>
                   <h3 className="card-title">Security & Scan Audit Trail</h3>
                   <p style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '2px' }}>
-                    Comprehensive tamper-proof log of all GPS coordinates and QR verifications
+                    Tamper-proof real-time audit log of GPS verifications, device activations, and scan results
                   </p>
                 </div>
-                <a className="btn-secondary" href="/api/owner/export.csv" download>
-                  <Download size={16} /> Export Audit Log
-                </a>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => refreshAdmin(selectedDate)}
+                  >
+                    <RefreshCw size={15} /> Refresh Logs
+                  </button>
+                  <a
+                    className="btn-secondary"
+                    href="/api/owner/export-logs.csv"
+                    download="rajarajeswari-security-audit-logs.csv"
+                  >
+                    <Download size={15} /> Export Audit Log (CSV)
+                  </a>
+                  <button
+                    type="button"
+                    className="btn-delete-staff"
+                    style={{ padding: '8px 12px' }}
+                    onClick={handleClearAuditLogs}
+                  >
+                    <Trash2 size={15} /> Clear Logs
+                  </button>
+                </div>
+              </div>
+
+              {/* Audit Search & Filter Controls */}
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid #E2E8F0', background: '#F8FAFC' }}>
+                <div className="audit-filter-bar">
+                  <div className="search-input-wrapper" style={{ maxWidth: '320px' }}>
+                    <Search size={16} className="search-icon" />
+                    <input
+                      type="text"
+                      placeholder="Search by staff, code, detail…"
+                      value={logSearchQuery}
+                      onChange={e => setLogSearchQuery(e.target.value)}
+                      className="search-input"
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className={`date-pill-btn ${logFilter === 'all' ? 'active' : ''}`}
+                      onClick={() => setLogFilter('all')}
+                    >
+                      All ({logs.length})
+                    </button>
+                    <button
+                      type="button"
+                      className={`date-pill-btn ${logFilter === 'success' ? 'active' : ''}`}
+                      style={logFilter === 'success' ? { background: '#059669', borderColor: '#059669', color: '#fff' } : {}}
+                      onClick={() => setLogFilter('success')}
+                    >
+                      Success
+                    </button>
+                    <button
+                      type="button"
+                      className={`date-pill-btn ${logFilter === 'failed' ? 'active' : ''}`}
+                      style={logFilter === 'failed' ? { background: '#E11D48', borderColor: '#E11D48', color: '#fff' } : {}}
+                      onClick={() => setLogFilter('failed')}
+                    >
+                      Security Alerts
+                    </button>
+                    <button
+                      type="button"
+                      className={`date-pill-btn ${logFilter === 'devices' ? 'active' : ''}`}
+                      onClick={() => setLogFilter('devices')}
+                    >
+                      Device Events
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="table-responsive">
@@ -1573,14 +1852,15 @@ export function App() {
                       <th>Timestamp</th>
                       <th>Staff Member</th>
                       <th>Result</th>
-                      <th>Coordinates (GPS)</th>
-                      <th>Details</th>
+                      <th>GPS Coordinates</th>
+                      <th>Device Key</th>
+                      <th>Event Details</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {logs.map(log => (
+                    {filteredLogs.map(log => (
                       <tr key={log.id}>
-                        <td className="font-mono" style={{ fontSize: '0.8rem' }}>
+                        <td className="font-mono" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
                           {new Date(log.attempted_at).toLocaleString()}
                         </td>
                         <td>
@@ -1595,23 +1875,93 @@ export function App() {
                           <StatusBadge status={log.result} />
                         </td>
                         <td className="font-mono" style={{ fontSize: '0.8rem' }}>
-                          {log.latitude && log.longitude
-                            ? `${log.latitude.toFixed(4)}, ${log.longitude.toFixed(4)}`
-                            : '—'}
+                          {log.latitude && log.longitude ? (
+                            <a
+                              href={`https://www.google.com/maps?q=${log.latitude},${log.longitude}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ color: '#047857', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            >
+                              <MapPin size={13} />
+                              <span>{log.latitude.toFixed(4)}, {log.longitude.toFixed(4)}</span>
+                            </a>
+                          ) : (
+                            <span style={{ color: '#94A3B8' }}>—</span>
+                          )}
+                        </td>
+                        <td className="font-mono" style={{ fontSize: '0.78rem', color: '#64748B' }}>
+                          {log.device_key ? `${log.device_key.slice(0, 14)}…` : '—'}
                         </td>
                         <td style={{ fontSize: '0.85rem' }}>{log.detail}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                {!logs.length && (
+                {!filteredLogs.length && (
                   <div style={{ padding: '40px', textAlign: 'center', color: '#94A3B8' }}>
-                    No scan events recorded yet.
+                    No security log entries match your filter.
                   </div>
                 )}
               </div>
             </section>
           )}
+        </div>
+      )}
+
+      {/* Staff Login QR Code Modal */}
+      {activeStaffQrModal && (
+        <div className="modal-overlay" onClick={() => setActiveStaffQrModal(null)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ textAlign: 'left' }}>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#064E3B' }}>
+                  Staff Login QR Code
+                </h3>
+                <p style={{ fontSize: '0.82rem', color: '#64748B' }}>
+                  {activeStaffQrModal.name} ({activeStaffQrModal.code})
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ padding: '6px' }}
+                onClick={() => setActiveStaffQrModal(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="modal-qr-frame">
+              <img src={activeStaffQrModal.dataUrl} alt="Staff Direct Login QR" />
+            </div>
+
+            <p style={{ fontSize: '0.82rem', color: '#475569', marginBottom: '14px' }}>
+              Staff member points their smartphone camera at this QR code to log in immediately without typing their PIN.
+            </p>
+
+            <button
+              type="button"
+              className="btn-accent"
+              style={{ width: '100%', marginBottom: '8px' }}
+              onClick={() =>
+                copyToClipboard(
+                  `Direct Login Link for ${activeStaffQrModal.name}:\n${activeStaffQrModal.loginUrl}`,
+                  'Direct login link copied!'
+                )
+              }
+            >
+              <Copy size={16} /> Copy Direct Login Link
+            </button>
+
+            <button
+              type="button"
+              className="btn-secondary"
+              style={{ width: '100%', justifyContent: 'center' }}
+              onClick={() => setActiveStaffQrModal(null)}
+            >
+              Done
+            </button>
+          </div>
         </div>
       )}
 
@@ -1633,6 +1983,11 @@ function StatusBadge({ status }) {
   else if (s === 'absent') label = 'Absent';
   else if (s === 'lunch' || s === 'break') label = 'On Lunch';
   else if (s === 'out') label = 'Checked Out';
+  else if (s === 'device_approved') label = 'Approved';
+  else if (s === 'device_pending') label = 'Pending';
+  else if (s === 'failed_geofence') label = 'Out of Range';
+  else if (s === 'failed_login') label = 'Bad Login';
+  else if (s === 'failed_gps') label = 'GPS Error';
 
   return (
     <span className={`status-badge ${s}`}>
