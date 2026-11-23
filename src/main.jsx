@@ -27,7 +27,10 @@ import {
   ChevronRight,
   Sparkles,
   ArrowRight,
-  ShieldAlert
+  Copy,
+  KeyRound,
+  ExternalLink,
+  Info
 } from 'lucide-react';
 import './style.css';
 
@@ -72,11 +75,9 @@ export function App() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  // Login Form States
-  const [loginRole, setLoginRole] = useState('staff'); // 'owner' | 'staff'
-  const [pin, setPin] = useState('');
-  const [code, setCode] = useState('');
-  const [staffPin, setStaffPin] = useState('');
+  // Single Unified Login States (Only ID + PIN)
+  const [loginId, setLoginId] = useState('');
+  const [loginPin, setLoginPin] = useState('');
   const [showPin, setShowPin] = useState(false);
 
   // Owner Data States
@@ -92,6 +93,11 @@ export function App() {
   const [newStaffName, setNewStaffName] = useState('');
   const [newStaffCode, setNewStaffCode] = useState('');
   const [newStaffPin, setNewStaffPin] = useState('');
+  const [createdStaffCreds, setCreatedStaffCreds] = useState(null);
+
+  // Owner Unique PIN Management
+  const [ownerNewPin, setOwnerNewPin] = useState('');
+  const [pinChangeMsg, setPinChangeMsg] = useState('');
 
   // Staff Portal States
   const [me, setMe] = useState(null);
@@ -100,6 +106,8 @@ export function App() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [geoStatus, setGeoStatus] = useState({ state: 'checking', text: 'Checking Shop Geofence...' });
   const scanner = useRef(null);
+
+  const portalUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173';
 
   const flash = (msg, err = '') => {
     setMessage(msg);
@@ -211,41 +219,34 @@ export function App() {
     );
   };
 
-  // Auth Handlers
-  const handleOwnerLogin = async e => {
+  // ----------------------------------------------------
+  // SINGLE UNIFIED LOGIN HANDLER (Only ID + PIN)
+  // ----------------------------------------------------
+  const handleUnifiedLogin = async e => {
     e.preventDefault();
     setBusy(true);
     try {
-      await api('/owner/login', {
-        method: 'POST',
-        body: JSON.stringify({ pin })
-      });
-      setRole('owner');
-      setPin('');
-      flash('Welcome, Owner');
-    } catch (e) {
-      flash('', e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleStaffLogin = async e => {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const d = await api('/staff/login', {
+      const d = await api('/login', {
         method: 'POST',
         body: JSON.stringify({
-          code: code.trim().toUpperCase(),
-          pin: staffPin,
+          id: loginId.trim(),
+          pin: loginPin.trim(),
           deviceKey: getDeviceKey()
         })
       });
-      setRole('staff');
-      setMe({ staff: d.staff, attendance: null });
-      setStaffPin('');
-      flash(`Welcome back, ${d.staff.name}`);
+
+      if (d.role === 'owner') {
+        setRole('owner');
+        setLoginId('');
+        setLoginPin('');
+        flash('Welcome, Shop Owner');
+      } else if (d.role === 'staff') {
+        setRole('staff');
+        setMe({ staff: d.staff, attendance: null });
+        setLoginId('');
+        setLoginPin('');
+        flash(`Welcome back, ${d.staff.name}`);
+      }
     } catch (e) {
       flash('', e.message);
     } finally {
@@ -266,22 +267,58 @@ export function App() {
   // Owner Management Handlers
   const handleAddStaff = async e => {
     e.preventDefault();
+    const staffName = newStaffName.trim();
+    const staffCode = newStaffCode.trim().toUpperCase();
+    const staffPin = newStaffPin.trim();
+
     try {
       await api('/owner/staff', {
         method: 'POST',
         body: JSON.stringify({
-          name: newStaffName,
-          code: newStaffCode.trim().toUpperCase(),
-          pin: newStaffPin
+          name: staffName,
+          code: staffCode,
+          pin: staffPin
         })
       });
+
+      // Save credentials for owner to share with staff
+      setCreatedStaffCreds({
+        name: staffName,
+        code: staffCode,
+        pin: staffPin,
+        portalUrl
+      });
+
       setNewStaffName('');
       setNewStaffCode('');
       setNewStaffPin('');
-      flash('Staff member successfully created');
+      flash('Staff member successfully created!');
       refreshOwner();
     } catch (e) {
       flash('', e.message);
+    }
+  };
+
+  const handleUpdateOwnerPin = async e => {
+    e.preventDefault();
+    try {
+      await api('/owner/pin', {
+        method: 'POST',
+        body: JSON.stringify({ newPin: ownerNewPin })
+      });
+      setPinChangeMsg('Owner unique PIN updated successfully.');
+      setOwnerNewPin('');
+      setTimeout(() => setPinChangeMsg(''), 5000);
+      flash('Owner unique PIN updated');
+    } catch (e) {
+      flash('', e.message);
+    }
+  };
+
+  const copyToClipboard = (text, note = 'Copied to clipboard!') => {
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(text);
+      flash(note);
     }
   };
 
@@ -396,7 +433,7 @@ export function App() {
   }, [board, searchQuery]);
 
   // ----------------------------------------------------
-  // 1. LOGIN SCREEN
+  // 1. UNIFIED LOGIN SCREEN (ONLY ID AND PIN)
   // ----------------------------------------------------
   if (!role) {
     return (
@@ -410,123 +447,78 @@ export function App() {
         </div>
 
         <section className="login-card">
-          {/* Segmented Pill Switcher */}
-          <div className="segmented-control">
-            <button
-              type="button"
-              className={`segmented-btn ${loginRole === 'staff' ? 'active' : ''}`}
-              onClick={() => {
-                setLoginRole('staff');
-                setShowPin(false);
-              }}
-            >
-              <User size={15} /> Staff
-            </button>
-            <button
-              type="button"
-              className={`segmented-btn ${loginRole === 'owner' ? 'active' : ''}`}
-              onClick={() => {
-                setLoginRole('owner');
-                setShowPin(false);
-              }}
-            >
-              <Lock size={15} /> Owner
-            </button>
+          <div className="login-card-header">
+            <h2>Sign In</h2>
+            <p>Enter your assigned ID and PIN to access the portal</p>
           </div>
 
-          {/* Conditional Role-Specific Form */}
-          {loginRole === 'owner' ? (
-            <form onSubmit={handleOwnerLogin}>
-              <div className="form-group">
-                <label className="form-label">
-                  <span>Owner PIN</span>
-                  <span className="section-label" style={{ fontSize: '0.68rem' }}>4–8 Digits</span>
-                </label>
-                <div className="input-wrapper">
-                  <span className="input-icon-left">
-                    <Lock size={18} />
-                  </span>
-                  <input
-                    value={pin}
-                    onChange={e => setPin(e.target.value)}
-                    type={showPin ? 'text' : 'password'}
-                    inputMode="numeric"
-                    maxLength={8}
-                    placeholder="Enter owner PIN"
-                    className="form-input font-mono"
-                    required
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    className="toggle-password-btn"
-                    onClick={() => setShowPin(!showPin)}
-                    title={showPin ? 'Hide PIN' : 'Show PIN'}
-                  >
-                    {showPin ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
+          <form onSubmit={handleUnifiedLogin}>
+            {/* ID Input */}
+            <div className="form-group">
+              <label className="form-label">
+                <span>Account ID</span>
+                <span className="section-label" style={{ fontSize: '0.68rem' }}>Staff ID or OWNER</span>
+              </label>
+              <div className="input-wrapper">
+                <span className="input-icon-left">
+                  <User size={18} />
+                </span>
+                <input
+                  value={loginId}
+                  onChange={e => setLoginId(e.target.value.toUpperCase())}
+                  placeholder="e.g. RR001 or OWNER"
+                  className="form-input font-mono"
+                  style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}
+                  required
+                  autoFocus
+                />
               </div>
+            </div>
 
-              <button type="submit" className="btn-primary" disabled={busy}>
-                <Lock size={17} /> {busy ? 'Authenticating…' : 'Access Owner Console'}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleStaffLogin}>
-              <div className="form-group">
-                <label className="form-label">Staff ID</label>
-                <div className="input-wrapper">
-                  <span className="input-icon-left">
-                    <User size={18} />
-                  </span>
-                  <input
-                    value={code}
-                    onChange={e => setCode(e.target.value.toUpperCase())}
-                    placeholder="e.g. RR001"
-                    className="form-input font-mono"
-                    style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}
-                    required
-                    autoFocus
-                  />
-                </div>
+            {/* PIN Input */}
+            <div className="form-group">
+              <label className="form-label">
+                <span>Security PIN</span>
+                <span className="section-label" style={{ fontSize: '0.68rem' }}>Numeric</span>
+              </label>
+              <div className="input-wrapper">
+                <span className="input-icon-left">
+                  <Lock size={18} />
+                </span>
+                <input
+                  value={loginPin}
+                  onChange={e => setLoginPin(e.target.value)}
+                  type={showPin ? 'text' : 'password'}
+                  inputMode="numeric"
+                  maxLength={8}
+                  placeholder="Enter your PIN"
+                  className="form-input font-mono"
+                  required
+                />
+                <button
+                  type="button"
+                  className="toggle-password-btn"
+                  onClick={() => setShowPin(!showPin)}
+                  title={showPin ? 'Hide PIN' : 'Show PIN'}
+                >
+                  {showPin ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
+            </div>
 
-              <div className="form-group">
-                <label className="form-label">
-                  <span>Staff PIN</span>
-                  <span className="section-label" style={{ fontSize: '0.68rem' }}>Numeric</span>
-                </label>
-                <div className="input-wrapper">
-                  <span className="input-icon-left">
-                    <Lock size={18} />
-                  </span>
-                  <input
-                    value={staffPin}
-                    onChange={e => setStaffPin(e.target.value)}
-                    type={showPin ? 'text' : 'password'}
-                    inputMode="numeric"
-                    maxLength={8}
-                    placeholder="Enter your PIN"
-                    className="form-input font-mono"
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="toggle-password-btn"
-                    onClick={() => setShowPin(!showPin)}
-                    title={showPin ? 'Hide PIN' : 'Show PIN'}
-                  >
-                    {showPin ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
+            {/* Role Notice */}
+            <div className="login-role-hint">
+              <Info size={16} style={{ flexShrink: 0, marginTop: '2px', color: '#059669' }} />
+              <div>
+                <strong>Staff:</strong> Enter your Staff ID (e.g. <code>RR001</code>) and PIN.<br />
+                <strong>Owner:</strong> Enter ID <code>OWNER</code> with your unique Owner PIN.
               </div>
+            </div>
 
-              <button type="submit" className="btn-primary" disabled={busy}>
-                <ChevronRight size={18} /> {busy ? 'Signing in…' : 'Sign In to Shift'}
-              </button>
-            </form>
-          )}
+            <button type="submit" className="btn-primary" disabled={busy}>
+              <ChevronRight size={18} /> {busy ? 'Verifying Credentials…' : 'Sign In'}
+            </button>
+          </form>
 
           <div className="login-footer">
             <ShieldCheck size={14} /> Retail SaaS Grade Security · Rajarajeswari
@@ -565,8 +557,8 @@ export function App() {
             </div>
           ) : (
             <div className="user-badge">
-              <span className="user-name">Owner Admin</span>
-              <span className="staff-code-pill font-mono">CONSOLE</span>
+              <span className="user-name">Shop Owner</span>
+              <span className="staff-code-pill font-mono">OWNER</span>
             </div>
           )}
           <button className="btn-icon-logout" onClick={handleLogout} title="Log Out">
@@ -613,7 +605,6 @@ export function App() {
               <p>Select action and scan the live QR code at the shop desk</p>
             </div>
 
-            {/* Large Thumb-Friendly Action Layout */}
             <div className="attendance-action-grid">
               {currentStatus === 'out' ? (
                 <button
@@ -644,7 +635,6 @@ export function App() {
                   </button>
                 </div>
               ) : (
-                /* on lunch break */
                 <div className="split-action-row">
                   <button
                     className="btn-lunch"
@@ -666,7 +656,7 @@ export function App() {
                 </div>
               )}
 
-              {/* Explicit QR / Barcode Scan Trigger */}
+              {/* QR / Barcode Scan Trigger */}
               <button
                 type="button"
                 className="btn-secondary"
@@ -783,12 +773,12 @@ export function App() {
             </div>
           </div>
 
-          {/* Tabs */}
+          {/* Navigation Tabs */}
           <nav className="dashboard-tabs">
             {[
               ['board', 'Live Board', Users],
               ['qr', 'Shop QR', QrCode],
-              ['staff', 'Staff Directory', User],
+              ['staff', 'Staff Management & Login Info', User],
               ['devices', 'Registered Phones', Smartphone],
               ['logs', 'Security Audit Logs', ShieldCheck]
             ].map(([k, label, IconComponent]) => (
@@ -803,7 +793,7 @@ export function App() {
             ))}
           </nav>
 
-          {/* Action Bar */}
+          {/* Action Bar for Live Board */}
           {tab === 'board' && (
             <div className="action-bar">
               <div className="search-input-wrapper">
@@ -965,102 +955,247 @@ export function App() {
             </section>
           )}
 
-          {/* TAB 3: STAFF DIRECTORY */}
+          {/* TAB 3: STAFF MANAGEMENT & WHERE THEY CAN LOGIN */}
           {tab === 'staff' && (
-            <div className="split-directory-grid">
-              {/* Add Staff Card */}
-              <div className="content-card staff-form-card">
-                <h3 className="card-title" style={{ marginBottom: '16px' }}>
-                  Add Staff Member
-                </h3>
-                <form onSubmit={handleAddStaff}>
-                  <div className="form-group">
-                    <label className="form-label">Full Name</label>
-                    <input
-                      type="text"
-                      value={newStaffName}
-                      onChange={e => setNewStaffName(e.target.value)}
-                      placeholder="e.g. Priya Sharma"
-                      className="form-input no-left-icon"
-                      required
-                    />
+            <div>
+              {/* WHERE STAFF CAN LOGIN IT - Top Informational Banner */}
+              <div className="portal-link-banner">
+                <div className="portal-link-header">
+                  <div>
+                    <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#064E3B' }}>
+                      Where Staff Can Log In
+                    </h4>
+                    <p style={{ fontSize: '0.85rem', color: '#475569', marginTop: '2px' }}>
+                      Tell staff to open this web address on their smartphones to sign in:
+                    </p>
                   </div>
 
-                  <div className="form-group">
-                    <label className="form-label">Staff Code</label>
-                    <input
-                      type="text"
-                      value={newStaffCode}
-                      onChange={e => setNewStaffCode(e.target.value.toUpperCase())}
-                      placeholder="e.g. RR005"
-                      className="form-input no-left-icon font-mono"
-                      style={{ textTransform: 'uppercase' }}
-                      required
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Temporary PIN</label>
-                    <input
-                      type="password"
-                      inputMode="numeric"
-                      maxLength={8}
-                      value={newStaffPin}
-                      onChange={e => setNewStaffPin(e.target.value)}
-                      placeholder="4–8 digit PIN"
-                      className="form-input no-left-icon font-mono"
-                      required
-                    />
-                  </div>
-
-                  <button type="submit" className="btn-primary">
-                    <Plus size={16} /> Save Staff Member
+                  <button
+                    className="btn-accent"
+                    style={{ padding: '8px 14px', fontSize: '0.82rem' }}
+                    onClick={() =>
+                      copyToClipboard(
+                        `Rajarajeswari Staff Attendance Portal:\nOpen this link: ${portalUrl}\nEnter your assigned Staff ID and PIN to clock in.`,
+                        'Portal link & instructions copied!'
+                      )
+                    }
+                  >
+                    <Copy size={15} /> Copy Staff Login Instructions
                   </button>
-                </form>
+                </div>
+
+                <div className="portal-url-badge">
+                  <Smartphone size={16} />
+                  <span>{portalUrl}</span>
+                </div>
               </div>
 
-              {/* Staff Directory List */}
-              <div className="content-card directory-list">
-                <div className="card-header" style={{ paddingLeft: '0', paddingRight: '0' }}>
-                  <h3 className="card-title">Staff Members ({staff.length})</h3>
-                </div>
-                {staff.map(s => (
-                  <div className="directory-row" key={s.id}>
-                    <div className="staff-table-cell">
-                      <div className="staff-avatar-mini">
-                        {(s.name || 'S').slice(0, 1).toUpperCase()}
-                      </div>
-                      <div>
-                        <strong style={{ display: 'block', fontSize: '0.92rem' }}>{s.name}</strong>
-                        <span className="staff-code-pill font-mono" style={{ fontSize: '0.72rem' }}>
-                          {s.code}
-                        </span>
-                        <span
-                          style={{
-                            marginLeft: '8px',
-                            fontSize: '0.75rem',
-                            color: s.active ? '#059669' : '#94A3B8'
-                          }}
-                        >
-                          {s.active ? '● Active' : '● Inactive'}
-                        </span>
-                      </div>
+              {/* Just Created Staff Credentials Alert */}
+              {createdStaffCreds && (
+                <div className="created-credentials-card">
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <CheckCircle2 size={20} color="#059669" />
+                      <strong style={{ color: '#064E3B', fontSize: '0.95rem' }}>
+                        Staff Member Created Successfully!
+                      </strong>
                     </div>
-
                     <button
-                      type="button"
                       className="btn-secondary"
-                      onClick={() => handleToggleStaff(s.id)}
+                      style={{ padding: '4px 10px', fontSize: '0.78rem' }}
+                      onClick={() => setCreatedStaffCreds(null)}
                     >
-                      {s.active ? 'Deactivate' : 'Activate'}
+                      Dismiss
                     </button>
                   </div>
-                ))}
-                {!staff.length && (
-                  <div style={{ padding: '30px 0', textAlign: 'center', color: '#94A3B8' }}>
-                    No staff members added yet.
+
+                  <div className="credentials-grid">
+                    <div className="credential-item">
+                      <span>Staff Name</span>
+                      <strong>{createdStaffCreds.name}</strong>
+                    </div>
+                    <div className="credential-item">
+                      <span>Staff ID (Login)</span>
+                      <strong className="font-mono">{createdStaffCreds.code}</strong>
+                    </div>
+                    <div className="credential-item">
+                      <span>PIN</span>
+                      <strong className="font-mono">{createdStaffCreds.pin}</strong>
+                    </div>
                   </div>
-                )}
+
+                  <button
+                    className="btn-accent"
+                    style={{ width: '100%', marginTop: '4px', fontSize: '0.88rem' }}
+                    onClick={() =>
+                      copyToClipboard(
+                        `Hello ${createdStaffCreds.name},\nHere are your Rajarajeswari Attendance login credentials:\n• Login Link: ${createdStaffCreds.portalUrl}\n• Staff ID: ${createdStaffCreds.code}\n• PIN: ${createdStaffCreds.pin}\nOpen the link on your phone to check in.`,
+                        'Staff credentials message copied to clipboard!'
+                      )
+                    }
+                  >
+                    <Copy size={16} /> Copy Credentials Message (for WhatsApp / SMS)
+                  </button>
+                </div>
+              )}
+
+              <div className="split-directory-grid">
+                {/* Add Staff Card */}
+                <div className="content-card staff-form-card">
+                  <h3 className="card-title" style={{ marginBottom: '16px' }}>
+                    Create New Staff
+                  </h3>
+                  <form onSubmit={handleAddStaff}>
+                    <div className="form-group">
+                      <label className="form-label">Full Name of Staff</label>
+                      <input
+                        type="text"
+                        value={newStaffName}
+                        onChange={e => setNewStaffName(e.target.value)}
+                        placeholder="e.g. Ramesh Kumar"
+                        className="form-input no-left-icon"
+                        required
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">
+                        <span>Staff ID</span>
+                        <span className="section-label" style={{ fontSize: '0.68rem' }}>Unique Code</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={newStaffCode}
+                        onChange={e => setNewStaffCode(e.target.value.toUpperCase())}
+                        placeholder="e.g. RR001"
+                        className="form-input no-left-icon font-mono"
+                        style={{ textTransform: 'uppercase' }}
+                        required
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">
+                        <span>Staff PIN</span>
+                        <span className="section-label" style={{ fontSize: '0.68rem' }}>4–8 Digits</span>
+                      </label>
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        maxLength={8}
+                        value={newStaffPin}
+                        onChange={e => setNewStaffPin(e.target.value)}
+                        placeholder="e.g. 1234"
+                        className="form-input no-left-icon font-mono"
+                        required
+                      />
+                    </div>
+
+                    <button type="submit" className="btn-primary">
+                      <Plus size={16} /> Create Staff Member
+                    </button>
+                  </form>
+
+                  {/* Owner Unique PIN Configuration */}
+                  <div style={{ marginTop: '32px', paddingTop: '20px', borderTop: '1px solid #E2E8F0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <KeyRound size={17} color="#064E3B" />
+                      <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#064E3B' }}>
+                        Owner Unique PIN
+                      </h4>
+                    </div>
+                    <p style={{ fontSize: '0.8rem', color: '#64748B', marginBottom: '12px' }}>
+                      Owner Login ID is <strong>OWNER</strong>. You can change your private Owner PIN below.
+                    </p>
+
+                    <form onSubmit={handleUpdateOwnerPin}>
+                      <div className="form-group">
+                        <input
+                          type="password"
+                          inputMode="numeric"
+                          maxLength={8}
+                          value={ownerNewPin}
+                          onChange={e => setOwnerNewPin(e.target.value)}
+                          placeholder="Enter new 4–8 digit PIN"
+                          className="form-input no-left-icon font-mono"
+                          required
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        className="btn-secondary"
+                        style={{ width: '100%', justifyContent: 'center' }}
+                      >
+                        Update Owner PIN
+                      </button>
+                    </form>
+                    {pinChangeMsg && (
+                      <p style={{ fontSize: '0.8rem', color: '#059669', marginTop: '8px', fontWeight: 600 }}>
+                        {pinChangeMsg}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Staff Directory List */}
+                <div className="content-card directory-list">
+                  <div className="card-header" style={{ paddingLeft: '0', paddingRight: '0' }}>
+                    <h3 className="card-title">Staff Members ({staff.length})</h3>
+                  </div>
+                  {staff.map(s => (
+                    <div className="directory-row" key={s.id}>
+                      <div className="staff-table-cell">
+                        <div className="staff-avatar-mini">
+                          {(s.name || 'S').slice(0, 1).toUpperCase()}
+                        </div>
+                        <div>
+                          <strong style={{ display: 'block', fontSize: '0.92rem' }}>{s.name}</strong>
+                          <span className="staff-code-pill font-mono" style={{ fontSize: '0.72rem' }}>
+                            {s.code}
+                          </span>
+                          <span
+                            style={{
+                              marginLeft: '8px',
+                              fontSize: '0.75rem',
+                              color: s.active ? '#059669' : '#94A3B8'
+                            }}
+                          >
+                            {s.active ? '● Active' : '● Inactive'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ padding: '6px 10px', fontSize: '0.78rem' }}
+                          onClick={() =>
+                            copyToClipboard(
+                              `Staff Login: ID=${s.code} | URL=${portalUrl}`,
+                              `Copied ${s.name}'s login details!`
+                            )
+                          }
+                          title="Copy Staff Login Details"
+                        >
+                          <Copy size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => handleToggleStaff(s.id)}
+                        >
+                          {s.active ? 'Deactivate' : 'Activate'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {!staff.length && (
+                    <div style={{ padding: '30px 0', textAlign: 'center', color: '#94A3B8' }}>
+                      No staff members registered yet. Create one on the left.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

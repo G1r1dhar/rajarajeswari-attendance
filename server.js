@@ -212,6 +212,11 @@ const limiter = rateLimit({
 
 app.use('/api', limiter);
 
+const getOwnerPin = () => {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('owner_pin');
+  return row ? String(row.value) : String(process.env.OWNER_PIN || '');
+};
+
 // Application status
 app.get('/api/status', (req, res) => {
   res.json({
@@ -224,7 +229,110 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// Owner login
+// Unified login for both Owner and Staff (One form: ID + PIN)
+app.post(
+  '/api/login',
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 15,
+    standardHeaders: true,
+    legacyHeaders: false
+  }),
+  (req, res) => {
+    const rawId = String(req.body.id || req.body.code || '').trim();
+    const id = rawId.toUpperCase();
+    const pin = String(req.body.pin || '');
+    const deviceKey = String(req.body.deviceKey || '');
+
+    if (!id || !pin) {
+      return res.status(400).json({ error: 'Please enter both ID and PIN.' });
+    }
+
+    const expectedOwnerPin = getOwnerPin();
+    const isOwnerId = id === 'OWNER' || id === 'ADMIN' || (process.env.OWNER_ID && id === process.env.OWNER_ID.toUpperCase());
+
+    if (isOwnerId) {
+      if (!/^\d{4,8}$/.test(pin) || !expectedOwnerPin || !safeEqual(pin, expectedOwnerPin)) {
+        return res.status(401).json({ error: 'Invalid Owner ID or PIN.' });
+      }
+
+      return req.session.regenerate(err => {
+        if (err) return res.status(500).json({ error: 'Session error' });
+
+        req.session.role = 'owner';
+        req.session.staffId = null;
+
+        req.session.save(err => {
+          if (err) return res.status(500).json({ error: 'Session save failed' });
+          res.json({ ok: true, role: 'owner' });
+        });
+      });
+    }
+
+    // Staff authentication
+    const staff = db.prepare('SELECT * FROM staff WHERE code = ? AND active = 1').get(id);
+
+    if (!staff || !bcrypt.compareSync(pin, staff.pin_hash) || !/^[a-zA-Z0-9_-]{16,100}$/.test(deviceKey)) {
+      logScan(staff?.id, null, deviceKey, 'failed_login', 'Invalid credentials or device key');
+      return res.status(401).json({ error: 'Invalid ID or PIN.' });
+    }
+
+    let device = db.prepare('SELECT * FROM devices WHERE staff_id = ? AND device_key = ?').get(staff.id, deviceKey);
+
+    if (!device) {
+      db.prepare(
+        'INSERT INTO devices (staff_id, device_key, approved, created_at) VALUES (?, ?, 0, ?)'
+      ).run(staff.id, deviceKey, nowIso());
+
+      logScan(staff.id, null, deviceKey, 'device_pending', 'New device requires owner approval');
+
+      return res.status(403).json({
+        error: 'This device is awaiting owner approval. Ask the shop owner to approve it in the console.'
+      });
+    }
+
+    if (!device.approved) {
+      return res.status(403).json({
+        error: 'This device is not approved yet. Ask the shop owner to approve it.'
+      });
+    }
+
+    req.session.regenerate(err => {
+      if (err) return res.status(500).json({ error: 'Session error' });
+
+      req.session.role = 'staff';
+      req.session.staffId = staff.id;
+      req.session.deviceKey = deviceKey;
+
+      req.session.save(err => {
+        if (err) return res.status(500).json({ error: 'Session save failed' });
+        res.json({
+          ok: true,
+          role: 'staff',
+          staff: {
+            name: staff.name,
+            code: staff.code
+          }
+        });
+      });
+    });
+  }
+);
+
+// Update Owner unique PIN
+app.post('/api/owner/pin', ownerOnly, (req, res) => {
+  const newPin = String(req.body.newPin || '').trim();
+
+  if (!/^\d{4,8}$/.test(newPin)) {
+    return res.status(400).json({ error: 'Owner PIN must be 4–8 digits.' });
+  }
+
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('owner_pin', newPin);
+
+  res.json({ ok: true, message: 'Owner PIN updated successfully.' });
+});
+
+// Owner login (legacy support)
 app.post(
   '/api/owner/login',
   rateLimit({
@@ -235,7 +343,7 @@ app.post(
   }),
   (req, res) => {
     const pin = String(req.body.pin || '');
-    const expected = String(process.env.OWNER_PIN || '');
+    const expected = getOwnerPin();
 
     if (!/^\d{4,8}$/.test(pin) || !expected || !safeEqual(pin, expected)) {
       return res.status(401).json({ error: 'Invalid owner PIN' });
