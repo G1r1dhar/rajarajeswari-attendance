@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Html5Qrcode } from 'html5-qrcode';
+import QRCode from 'qrcode';
 import {
   Store,
   ShieldCheck,
@@ -30,7 +31,11 @@ import {
   Copy,
   KeyRound,
   ExternalLink,
-  Info
+  Info,
+  Calendar,
+  Trash2,
+  Camera,
+  Upload
 } from 'lucide-react';
 import './style.css';
 
@@ -69,7 +74,7 @@ function distanceMeters(aLat, aLng, bLat, bLng) {
 }
 
 export function App() {
-  const [role, setRole] = useState(null);
+  const [role, setRole] = useState(null); // 'owner' (Admin) | 'staff'
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -80,7 +85,7 @@ export function App() {
   const [loginPin, setLoginPin] = useState('');
   const [showPin, setShowPin] = useState(false);
 
-  // Owner Data States
+  // Admin Data States
   const [staff, setStaff] = useState([]);
   const [board, setBoard] = useState([]);
   const [devices, setDevices] = useState([]);
@@ -89,23 +94,33 @@ export function App() {
   const [tab, setTab] = useState('board');
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Calendar Date State for Attendance History
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'present' | 'absent' | 'lunch'
+
   // Add Staff form states
   const [newStaffName, setNewStaffName] = useState('');
   const [newStaffCode, setNewStaffCode] = useState('');
   const [newStaffPin, setNewStaffPin] = useState('');
   const [createdStaffCreds, setCreatedStaffCreds] = useState(null);
 
-  // Owner Unique PIN Management
-  const [ownerNewPin, setOwnerNewPin] = useState('');
+  // Admin Unique PIN Management
+  const [adminNewPin, setAdminNewPin] = useState('');
   const [pinChangeMsg, setPinChangeMsg] = useState('');
+
+  // Portal QR Code for phone registration
+  const [portalQrData, setPortalQrData] = useState('');
 
   // Staff Portal States
   const [me, setMe] = useState(null);
   const [action, setAction] = useState('in'); // 'in' | 'lunch' | 'out'
   const [scanOpen, setScanOpen] = useState(false);
+  const [scanMethod, setScanMethod] = useState('camera'); // 'camera' | 'upload' | 'passcode'
+  const [manualPasscode, setManualPasscode] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [geoStatus, setGeoStatus] = useState({ state: 'checking', text: 'Checking Shop Geofence...' });
   const scanner = useRef(null);
+  const fileInputRef = useRef(null);
 
   const portalUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173';
 
@@ -134,14 +149,19 @@ export function App() {
         if (res.role) setRole(res.role);
       })
       .catch(e => flash('', e.message));
-  }, []);
 
-  // Fetch Owner Data
-  const refreshOwner = async () => {
+    // Generate Portal QR for Admin screen
+    QRCode.toDataURL(portalUrl, { width: 180, margin: 1 })
+      .then(setPortalQrData)
+      .catch(() => {});
+  }, [portalUrl]);
+
+  // Fetch Admin Data
+  const refreshAdmin = async (targetDate = selectedDate) => {
     try {
       const [s, b, d, l] = await Promise.all([
         api('/owner/staff'),
-        api('/owner/board'),
+        api(`/owner/board?date=${targetDate}`),
         api('/owner/devices'),
         api('/owner/logs')
       ]);
@@ -156,18 +176,18 @@ export function App() {
 
   useEffect(() => {
     if (role === 'owner') {
-      refreshOwner();
-      const t = setInterval(refreshOwner, 12000);
+      refreshAdmin(selectedDate);
+      const t = setInterval(() => refreshAdmin(selectedDate), 15000);
       return () => clearInterval(t);
     }
-  }, [role]);
+  }, [role, selectedDate]);
 
-  // Shop QR Polling for Owner Kiosk
+  // Shop QR Polling for Admin Kiosk
   useEffect(() => {
     if (role === 'owner' && tab === 'qr') {
       const loadQr = () => api('/owner/qr').then(setQr).catch(e => flash('', e.message));
       loadQr();
-      const t = setInterval(loadQr, 25000);
+      const t = setInterval(loadQr, 20000);
       return () => clearInterval(t);
     }
   }, [role, tab]);
@@ -220,7 +240,7 @@ export function App() {
   };
 
   // ----------------------------------------------------
-  // SINGLE UNIFIED LOGIN HANDLER (Only ID + PIN)
+  // UNIFIED LOGIN HANDLER (Only ID + PIN)
   // ----------------------------------------------------
   const handleUnifiedLogin = async e => {
     e.preventDefault();
@@ -239,7 +259,7 @@ export function App() {
         setRole('owner');
         setLoginId('');
         setLoginPin('');
-        flash('Welcome, Shop Owner');
+        flash('Welcome, Admin');
       } else if (d.role === 'staff') {
         setRole('staff');
         setMe({ staff: d.staff, attendance: null });
@@ -264,7 +284,7 @@ export function App() {
     setTab('board');
   };
 
-  // Owner Management Handlers
+  // Admin Management Handlers
   const handleAddStaff = async e => {
     e.preventDefault();
     const staffName = newStaffName.trim();
@@ -281,7 +301,6 @@ export function App() {
         })
       });
 
-      // Save credentials for owner to share with staff
       setCreatedStaffCreds({
         name: staffName,
         code: staffCode,
@@ -293,23 +312,36 @@ export function App() {
       setNewStaffCode('');
       setNewStaffPin('');
       flash('Staff member successfully created!');
-      refreshOwner();
+      refreshAdmin(selectedDate);
     } catch (e) {
       flash('', e.message);
     }
   };
 
-  const handleUpdateOwnerPin = async e => {
+  const handleDeleteStaff = async (id, name, code) => {
+    if (!window.confirm(`Permanently delete staff member ${name} (${code})?\nAll attendance records and device registrations for this staff member will be removed.`)) {
+      return;
+    }
+    try {
+      await api(`/owner/staff/${id}`, { method: 'DELETE' });
+      flash(`Staff member ${name} deleted successfully.`);
+      refreshAdmin(selectedDate);
+    } catch (e) {
+      flash('', e.message);
+    }
+  };
+
+  const handleUpdateAdminPin = async e => {
     e.preventDefault();
     try {
       await api('/owner/pin', {
         method: 'POST',
-        body: JSON.stringify({ newPin: ownerNewPin })
+        body: JSON.stringify({ newPin: adminNewPin })
       });
-      setPinChangeMsg('Owner unique PIN updated successfully.');
-      setOwnerNewPin('');
+      setPinChangeMsg('Admin PIN updated successfully.');
+      setAdminNewPin('');
       setTimeout(() => setPinChangeMsg(''), 5000);
-      flash('Owner unique PIN updated');
+      flash('Admin unique PIN updated');
     } catch (e) {
       flash('', e.message);
     }
@@ -326,7 +358,7 @@ export function App() {
     try {
       await api(`/owner/devices/${id}/${act}`, { method: 'POST' });
       flash(act === 'approve' ? 'Device approved successfully' : 'Device access revoked');
-      refreshOwner();
+      refreshAdmin(selectedDate);
     } catch (e) {
       flash('', e.message);
     }
@@ -335,24 +367,39 @@ export function App() {
   const handleToggleStaff = async id => {
     try {
       await api(`/owner/staff/${id}/toggle`, { method: 'POST' });
-      refreshOwner();
+      refreshAdmin(selectedDate);
     } catch (e) {
       flash('', e.message);
     }
   };
 
-  // Scanner Logic
+  // ----------------------------------------------------
+  // MULTI-METHOD ATTENDANCE SCANNER
+  // ----------------------------------------------------
   const startScanner = async forcedAction => {
     const targetAction = forcedAction || action;
     setAction(targetAction);
     setScanOpen(true);
+    setScanMethod('camera');
+
+    // Slight delay to ensure DOM element exists
     setTimeout(async () => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        // Fallback for non-https/non-supported browser
+        setScanMethod('passcode');
+        flash('Camera direct stream unavailable. Please enter shop passcode or upload photo.');
+        return;
+      }
+
       try {
         const q = new Html5Qrcode('qr-reader');
         scanner.current = q;
+        const cameras = await Html5Qrcode.getCameras().catch(() => []);
+        const cameraIdOrConfig = cameras.length ? { facingMode: 'environment' } : true;
+
         await q.start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: { width: 240, height: 240 } },
+          cameraIdOrConfig,
+          { fps: 10, qrbox: { width: 250, height: 250 } },
           async decoded => {
             await q.stop();
             scanner.current = null;
@@ -362,10 +409,11 @@ export function App() {
           () => {}
         );
       } catch (e) {
-        setScanOpen(false);
-        flash('', `Camera permission error: ${e.message || e}`);
+        console.warn('Camera start error:', e);
+        setScanMethod('passcode');
+        flash('', `Camera preview blocked (${e.message || e}). Use passcode or upload photo.`);
       }
-    }, 120);
+    }, 200);
   };
 
   const stopScanner = async () => {
@@ -378,7 +426,33 @@ export function App() {
     setScanOpen(false);
   };
 
-  const submitAttendance = async (token, actionType) => {
+  const handleFileUpload = async e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setBusy(true);
+      const q = new Html5Qrcode('qr-reader-hidden');
+      const decoded = await q.scanFile(file, true);
+      await submitAttendance(decoded, action);
+      stopScanner();
+    } catch (err) {
+      flash('', 'Could not detect QR code in that image. Try entering the 6-character shop passcode.');
+    } finally {
+      setBusy(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleManualPasscodeSubmit = async e => {
+    e.preventDefault();
+    if (!manualPasscode.trim()) return;
+    await submitAttendance(manualPasscode.trim().toUpperCase(), action);
+    setManualPasscode('');
+    stopScanner();
+  };
+
+  const submitAttendance = async (tokenOrCode, actionType) => {
     setBusy(true);
     try {
       if (!navigator.geolocation) throw new Error('GPS is not available on this phone');
@@ -392,7 +466,7 @@ export function App() {
       const d = await api('/attendance/scan', {
         method: 'POST',
         body: JSON.stringify({
-          token,
+          token: tokenOrCode,
           action: actionType || action,
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude
@@ -400,7 +474,7 @@ export function App() {
       });
       setMe({ staff: d.staff, attendance: d.attendance });
       checkGeofence();
-      flash('Attendance verified & saved successfully');
+      flash('Attendance verified & saved successfully!');
     } catch (e) {
       flash(
         '',
@@ -423,14 +497,39 @@ export function App() {
     return `${h}h ${m < 10 ? '0' : ''}${m}m`;
   };
 
-  // Filtered Board Data
+  // Filtered Board Data with Date and Status
   const filteredBoard = useMemo(() => {
-    if (!searchQuery) return board;
-    const q = searchQuery.toLowerCase();
-    return board.filter(
-      item => item.name?.toLowerCase().includes(q) || item.code?.toLowerCase().includes(q)
-    );
-  }, [board, searchQuery]);
+    let result = board;
+    if (statusFilter === 'present') {
+      result = result.filter(item => item.status === 'in' || (item.clock_in && item.status !== 'absent'));
+    } else if (statusFilter === 'absent') {
+      result = result.filter(item => item.status === 'absent' || (!item.clock_in && item.status === 'out'));
+    } else if (statusFilter === 'lunch') {
+      result = result.filter(item => item.status === 'lunch');
+    }
+
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        item => item.name?.toLowerCase().includes(q) || item.code?.toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [board, statusFilter, searchQuery]);
+
+  // Counts for KPIs for selected date
+  const presentCount = useMemo(
+    () => board.filter(b => b.status === 'in' || (b.clock_in && b.status !== 'absent')).length,
+    [board]
+  );
+  const absentCount = useMemo(
+    () => board.filter(b => b.status === 'absent' || (!b.clock_in && b.status === 'out')).length,
+    [board]
+  );
+  const lunchCount = useMemo(
+    () => board.filter(b => b.status === 'lunch').length,
+    [board]
+  );
 
   // ----------------------------------------------------
   // 1. UNIFIED LOGIN SCREEN (ONLY ID AND PIN)
@@ -453,11 +552,10 @@ export function App() {
           </div>
 
           <form onSubmit={handleUnifiedLogin}>
-            {/* ID Input */}
             <div className="form-group">
               <label className="form-label">
                 <span>Account ID</span>
-                <span className="section-label" style={{ fontSize: '0.68rem' }}>Staff ID or OWNER</span>
+                <span className="section-label" style={{ fontSize: '0.68rem' }}>Staff ID or ADMIN</span>
               </label>
               <div className="input-wrapper">
                 <span className="input-icon-left">
@@ -466,7 +564,7 @@ export function App() {
                 <input
                   value={loginId}
                   onChange={e => setLoginId(e.target.value.toUpperCase())}
-                  placeholder="e.g. RR001 or OWNER"
+                  placeholder="e.g. RR001 or ADMIN"
                   className="form-input font-mono"
                   style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}
                   required
@@ -475,7 +573,6 @@ export function App() {
               </div>
             </div>
 
-            {/* PIN Input */}
             <div className="form-group">
               <label className="form-label">
                 <span>Security PIN</span>
@@ -506,12 +603,11 @@ export function App() {
               </div>
             </div>
 
-            {/* Role Notice */}
             <div className="login-role-hint">
               <Info size={16} style={{ flexShrink: 0, marginTop: '2px', color: '#059669' }} />
               <div>
                 <strong>Staff:</strong> Enter your Staff ID (e.g. <code>RR001</code>) and PIN.<br />
-                <strong>Owner:</strong> Enter ID <code>OWNER</code> with your unique Owner PIN.
+                <strong>Admin:</strong> Enter ID <code>ADMIN</code> with your secure Admin PIN.
               </div>
             </div>
 
@@ -557,8 +653,8 @@ export function App() {
             </div>
           ) : (
             <div className="user-badge">
-              <span className="user-name">Shop Owner</span>
-              <span className="staff-code-pill font-mono">OWNER</span>
+              <span className="user-name">Store Admin</span>
+              <span className="staff-code-pill font-mono">ADMIN</span>
             </div>
           )}
           <button className="btn-icon-logout" onClick={handleLogout} title="Log Out">
@@ -587,7 +683,6 @@ export function App() {
               })}
             </p>
 
-            {/* Geofence Status Pill */}
             <div className={`geofence-pill ${geoStatus.state}`}>
               <span className="pulse-dot" />
               <span>{geoStatus.text}</span>
@@ -598,7 +693,7 @@ export function App() {
             </div>
           </section>
 
-          {/* Primary Action Grid (Large Thumb-Friendly Buttons) */}
+          {/* Primary Action Grid */}
           <section className="action-card">
             <div className="action-card-header">
               <h3>Attendance Actions</h3>
@@ -656,7 +751,6 @@ export function App() {
                 </div>
               )}
 
-              {/* QR / Barcode Scan Trigger */}
               <button
                 type="button"
                 className="btn-secondary"
@@ -665,16 +759,98 @@ export function App() {
                 disabled={busy}
               >
                 <ScanLine size={19} />
-                <span>Open QR & Barcode Camera</span>
+                <span>Open Verification Scanner / Passcode</span>
               </button>
             </div>
 
-            {/* QR Scanner Container */}
+            {/* Robust Multi-Method Scanner Box */}
             {scanOpen && (
-              <div style={{ marginTop: '16px' }}>
-                <div id="qr-reader" className="scanner-view-box" />
+              <div className="scanner-container-card">
+                <div className="scanner-method-tabs">
+                  <button
+                    type="button"
+                    className={`scanner-method-btn ${scanMethod === 'camera' ? 'active' : ''}`}
+                    onClick={() => {
+                      setScanMethod('camera');
+                      startScanner(action);
+                    }}
+                  >
+                    <Camera size={14} /> Live Camera
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`scanner-method-btn ${scanMethod === 'upload' ? 'active' : ''}`}
+                    onClick={() => setScanMethod('upload')}
+                  >
+                    <Upload size={14} /> Snap Photo
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`scanner-method-btn ${scanMethod === 'passcode' ? 'active' : ''}`}
+                    onClick={() => setScanMethod('passcode')}
+                  >
+                    <KeyRound size={14} /> Shop Code
+                  </button>
+                </div>
+
+                {/* Method 1: Live Camera */}
+                {scanMethod === 'camera' && (
+                  <div>
+                    <div id="qr-reader" className="scanner-view-box" style={{ minHeight: '260px' }} />
+                    <p style={{ fontSize: '0.78rem', color: '#64748B', textAlign: 'center', marginTop: '6px' }}>
+                      Point camera at the live rotating QR on the shop desk
+                    </p>
+                  </div>
+                )}
+
+                {/* Method 2: Snap Photo / File Upload */}
+                {scanMethod === 'upload' && (
+                  <div style={{ textAlign: 'center', padding: '20px 10px' }}>
+                    <p style={{ fontSize: '0.85rem', color: '#475569', marginBottom: '14px' }}>
+                      Take a photo of the shop QR screen with your phone's camera:
+                    </p>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      ref={fileInputRef}
+                      onChange={handleFileUpload}
+                      style={{ display: 'none' }}
+                      id="qr-file-input"
+                    />
+                    <label htmlFor="qr-file-input" className="btn-primary" style={{ cursor: 'pointer', display: 'inline-flex', width: 'auto' }}>
+                      <Camera size={18} /> Open Phone Camera / Gallery
+                    </label>
+                    <div id="qr-reader-hidden" style={{ display: 'none' }} />
+                  </div>
+                )}
+
+                {/* Method 3: 6-Character Passcode */}
+                {scanMethod === 'passcode' && (
+                  <form onSubmit={handleManualPasscodeSubmit} className="passcode-input-form">
+                    <p style={{ fontSize: '0.85rem', color: '#475569', textAlign: 'center' }}>
+                      Enter the 6-character live code displayed right below the shop QR screen:
+                    </p>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      placeholder="e.g. 7A8B9C"
+                      value={manualPasscode}
+                      onChange={e => setManualPasscode(e.target.value.toUpperCase())}
+                      className="passcode-large-input"
+                      autoFocus
+                      required
+                    />
+                    <button type="submit" className="btn-primary" disabled={busy || manualPasscode.length < 4}>
+                      <Check size={18} /> Verify Passcode & Submit
+                    </button>
+                  </form>
+                )}
+
                 <button type="button" className="scanner-cancel-btn" onClick={stopScanner}>
-                  Cancel Camera
+                  Cancel Verification
                 </button>
               </div>
             )}
@@ -722,21 +898,21 @@ export function App() {
         </div>
       ) : (
         /* ----------------------------------------------------
-            B. OWNER DASHBOARD LAYOUT
+            B. ADMIN DASHBOARD LAYOUT
             ---------------------------------------------------- */
         <div>
           <div className="owner-header-row">
             <div className="owner-title-block">
               <p className="section-label">Retail Operations</p>
-              <h2>Attendance & Staff Console</h2>
-              <p>Real-time shop presence, geofence audit, and biometric QR challenge</p>
+              <h2>Admin Attendance & Staff Console</h2>
+              <p>Attendance calendar, live shop QR kiosk, and staff administration</p>
             </div>
-            <button className="btn-secondary" onClick={refreshOwner}>
+            <button className="btn-secondary" onClick={() => refreshAdmin(selectedDate)}>
               <RefreshCw size={15} /> Refresh Data
             </button>
           </div>
 
-          {/* Top Summary Strip: 3-Column KPI Grid */}
+          {/* Top Summary Strip: Dynamic KPIs for Selected Date */}
           <div className="kpi-grid">
             <div className="kpi-card">
               <div className="kpi-icon staff">
@@ -750,24 +926,24 @@ export function App() {
 
             <div className="kpi-card">
               <div className="kpi-icon present">
-                <Store size={24} />
+                <CheckCircle2 size={24} />
               </div>
               <div>
-                <span className="kpi-label">Present Now</span>
-                <div className="kpi-value font-mono">
-                  {board.filter(b => b.status === 'in').length}
+                <span className="kpi-label">Present</span>
+                <div className="kpi-value font-mono" style={{ color: '#059669' }}>
+                  {presentCount}
                 </div>
               </div>
             </div>
 
             <div className="kpi-card">
-              <div className="kpi-icon break">
-                <Coffee size={24} />
+              <div className="kpi-icon break" style={{ background: absentCount > 0 ? '#FFF1F2' : '#FFFBEB', color: absentCount > 0 ? '#E11D48' : '#D97706' }}>
+                <XCircle size={24} />
               </div>
               <div>
-                <span className="kpi-label">On Break / Absent</span>
+                <span className="kpi-label">Absent / Break</span>
                 <div className="kpi-value font-mono">
-                  {board.filter(b => b.status === 'lunch' || b.status === 'out').length}
+                  {absentCount} Absent · {lunchCount} Break
                 </div>
               </div>
             </div>
@@ -776,8 +952,8 @@ export function App() {
           {/* Navigation Tabs */}
           <nav className="dashboard-tabs">
             {[
-              ['board', 'Live Board', Users],
-              ['qr', 'Shop QR', QrCode],
+              ['board', 'Attendance Calendar & Board', Calendar],
+              ['qr', 'Shop QR Screen', QrCode],
               ['staff', 'Staff Management & Login Info', User],
               ['devices', 'Registered Phones', Smartphone],
               ['logs', 'Security Audit Logs', ShieldCheck]
@@ -793,144 +969,209 @@ export function App() {
             ))}
           </nav>
 
-          {/* Action Bar for Live Board */}
+          {/* TAB 1: ATTENDANCE CALENDAR & LIVE BOARD */}
           {tab === 'board' && (
-            <div className="action-bar">
-              <div className="search-input-wrapper">
-                <Search size={16} className="search-icon" />
-                <input
-                  type="text"
-                  placeholder="Filter by name or ID (e.g. RR001)…"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="search-input"
-                />
+            <div>
+              {/* Calendar Selector Bar */}
+              <div className="calendar-bar">
+                <div className="calendar-input-group">
+                  <Calendar size={18} color="#064E3B" />
+                  <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0F172A' }}>
+                    Select Date:
+                  </span>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={e => setSelectedDate(e.target.value)}
+                    className="calendar-date-input"
+                  />
+                  <button
+                    type="button"
+                    className={`date-pill-btn ${selectedDate === new Date().toISOString().slice(0, 10) ? 'active' : ''}`}
+                    onClick={() => setSelectedDate(new Date().toISOString().slice(0, 10))}
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    className="date-pill-btn"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() - 1);
+                      setSelectedDate(d.toISOString().slice(0, 10));
+                    }}
+                  >
+                    Yesterday
+                  </button>
+                </div>
+
+                {/* Status Filter Buttons */}
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    className={`date-pill-btn ${statusFilter === 'all' ? 'active' : ''}`}
+                    onClick={() => setStatusFilter('all')}
+                  >
+                    All ({board.length})
+                  </button>
+                  <button
+                    type="button"
+                    className={`date-pill-btn ${statusFilter === 'present' ? 'active' : ''}`}
+                    style={statusFilter === 'present' ? { background: '#059669', borderColor: '#059669', color: '#fff' } : {}}
+                    onClick={() => setStatusFilter('present')}
+                  >
+                    Present ({presentCount})
+                  </button>
+                  <button
+                    type="button"
+                    className={`date-pill-btn ${statusFilter === 'absent' ? 'active' : ''}`}
+                    style={statusFilter === 'absent' ? { background: '#E11D48', borderColor: '#E11D48', color: '#fff' } : {}}
+                    onClick={() => setStatusFilter('absent')}
+                  >
+                    Absent ({absentCount})
+                  </button>
+                </div>
               </div>
 
-              <div className="action-buttons-group">
-                <button className="btn-accent" onClick={() => setTab('staff')}>
-                  <Plus size={16} /> Add Staff
-                </button>
-                <button className="btn-secondary" onClick={() => setTab('qr')}>
-                  <QrCode size={16} /> Generate QR
-                </button>
-                <a className="btn-secondary" href="/api/owner/export.csv" download>
-                  <Download size={16} /> Export CSV
-                </a>
+              {/* Action Bar */}
+              <div className="action-bar">
+                <div className="search-input-wrapper">
+                  <Search size={16} className="search-icon" />
+                  <input
+                    type="text"
+                    placeholder="Filter by name or ID (e.g. RR001)…"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    className="search-input"
+                  />
+                </div>
+
+                <div className="action-buttons-group">
+                  <button className="btn-accent" onClick={() => setTab('staff')}>
+                    <Plus size={16} /> Add Staff
+                  </button>
+                  <button className="btn-secondary" onClick={() => setTab('qr')}>
+                    <QrCode size={16} /> Generate QR
+                  </button>
+                  <a className="btn-secondary" href="/api/owner/export.csv" download>
+                    <Download size={16} /> Export CSV
+                  </a>
+                </div>
               </div>
+
+              <section className="content-card">
+                <div className="card-header">
+                  <div>
+                    <h3 className="card-title">
+                      Attendance for {new Date(selectedDate + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}
+                    </h3>
+                  </div>
+                  <span className="geofence-pill inside">
+                    <span className="pulse-dot" />
+                    <span>{selectedDate === new Date().toISOString().slice(0, 10) ? 'LIVE TODAY' : 'HISTORICAL LOG'}</span>
+                  </span>
+                </div>
+
+                {/* Desktop Table View */}
+                <div className="table-responsive desktop-table-view">
+                  <table className="saas-table">
+                    <thead>
+                      <tr>
+                        <th>Staff Member</th>
+                        <th>Staff ID</th>
+                        <th>Attendance Status</th>
+                        <th>Entry Time</th>
+                        <th>Lunch Duration</th>
+                        <th>Exit Time</th>
+                        <th>Total Hours</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredBoard.map(row => (
+                        <tr key={row.id}>
+                          <td>
+                            <div className="staff-table-cell">
+                              <div className="staff-avatar-mini">
+                                {(row.name || 'S').slice(0, 1).toUpperCase()}
+                              </div>
+                              <span className="staff-name-text">{row.name}</span>
+                            </div>
+                          </td>
+                          <td>
+                            <span className="staff-code-pill font-mono">{row.code}</span>
+                          </td>
+                          <td>
+                            <StatusBadge status={row.status} />
+                          </td>
+                          <td className="font-mono">{fmtTime(row.clock_in)}</td>
+                          <td className="font-mono">{row.total_break_minutes || 0} mins</td>
+                          <td className="font-mono">{fmtTime(row.clock_out)}</td>
+                          <td className="font-mono" style={{ fontWeight: 600 }}>
+                            {fmtDuration(row.net_work_minutes || 0)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {!filteredBoard.length && (
+                    <div style={{ padding: '40px', textAlign: 'center', color: '#94A3B8' }}>
+                      No staff records found for {selectedDate}.
+                    </div>
+                  )}
+                </div>
+
+                {/* Mobile Scannable Cards View */}
+                <div className="mobile-card-list">
+                  {filteredBoard.map(row => (
+                    <div className="mobile-attendance-card" key={row.id}>
+                      <div className="mobile-card-top">
+                        <div className="staff-table-cell">
+                          <div className="staff-avatar-mini">
+                            {(row.name || 'S').slice(0, 1).toUpperCase()}
+                          </div>
+                          <div>
+                            <span className="staff-name-text">{row.name}</span>
+                            <span className="staff-code-pill font-mono" style={{ marginLeft: '6px' }}>
+                              {row.code}
+                            </span>
+                          </div>
+                        </div>
+                        <StatusBadge status={row.status} />
+                      </div>
+
+                      <div className="mobile-card-grid">
+                        <div className="mobile-grid-item">
+                          <span>Entry</span>
+                          <strong className="font-mono">{fmtTime(row.clock_in)}</strong>
+                        </div>
+                        <div className="mobile-grid-item">
+                          <span>Lunch</span>
+                          <strong className="font-mono">{row.total_break_minutes || 0}m</strong>
+                        </div>
+                        <div className="mobile-grid-item">
+                          <span>Exit</span>
+                          <strong className="font-mono">{fmtTime(row.clock_out)}</strong>
+                        </div>
+                        <div className="mobile-grid-item">
+                          <span>Net Time</span>
+                          <strong className="font-mono">{fmtDuration(row.net_work_minutes || 0)}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
             </div>
           )}
 
-          {/* TAB 1: LIVE BOARD */}
-          {tab === 'board' && (
-            <section className="content-card">
-              <div className="card-header">
-                <h3 className="card-title">Today's Attendance Status</h3>
-                <span className="geofence-pill inside">
-                  <span className="pulse-dot" />
-                  <span>LIVE REFRESHING</span>
-                </span>
-              </div>
-
-              {/* Desktop Table View */}
-              <div className="table-responsive desktop-table-view">
-                <table className="saas-table">
-                  <thead>
-                    <tr>
-                      <th>Staff Member</th>
-                      <th>Staff ID</th>
-                      <th>Current Status</th>
-                      <th>Entry Time</th>
-                      <th>Lunch Duration</th>
-                      <th>Exit Time</th>
-                      <th>Total Hours</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredBoard.map(row => (
-                      <tr key={row.id}>
-                        <td>
-                          <div className="staff-table-cell">
-                            <div className="staff-avatar-mini">
-                              {(row.name || 'S').slice(0, 1).toUpperCase()}
-                            </div>
-                            <span className="staff-name-text">{row.name}</span>
-                          </div>
-                        </td>
-                        <td>
-                          <span className="staff-code-pill font-mono">{row.code}</span>
-                        </td>
-                        <td>
-                          <StatusBadge status={row.status} />
-                        </td>
-                        <td className="font-mono">{fmtTime(row.clock_in)}</td>
-                        <td className="font-mono">{row.total_break_minutes || 0} mins</td>
-                        <td className="font-mono">{fmtTime(row.clock_out)}</td>
-                        <td className="font-mono" style={{ fontWeight: 600 }}>
-                          {fmtDuration(row.net_work_minutes || 0)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {!filteredBoard.length && (
-                  <div style={{ padding: '40px', textAlign: 'center', color: '#94A3B8' }}>
-                    No staff records found matching criteria.
-                  </div>
-                )}
-              </div>
-
-              {/* Mobile Scannable Cards View */}
-              <div className="mobile-card-list">
-                {filteredBoard.map(row => (
-                  <div className="mobile-attendance-card" key={row.id}>
-                    <div className="mobile-card-top">
-                      <div className="staff-table-cell">
-                        <div className="staff-avatar-mini">
-                          {(row.name || 'S').slice(0, 1).toUpperCase()}
-                        </div>
-                        <div>
-                          <span className="staff-name-text">{row.name}</span>
-                          <span className="staff-code-pill font-mono" style={{ marginLeft: '6px' }}>
-                            {row.code}
-                          </span>
-                        </div>
-                      </div>
-                      <StatusBadge status={row.status} />
-                    </div>
-
-                    <div className="mobile-card-grid">
-                      <div className="mobile-grid-item">
-                        <span>Entry</span>
-                        <strong className="font-mono">{fmtTime(row.clock_in)}</strong>
-                      </div>
-                      <div className="mobile-grid-item">
-                        <span>Lunch</span>
-                        <strong className="font-mono">{row.total_break_minutes || 0}m</strong>
-                      </div>
-                      <div className="mobile-grid-item">
-                        <span>Exit</span>
-                        <strong className="font-mono">{fmtTime(row.clock_out)}</strong>
-                      </div>
-                      <div className="mobile-grid-item">
-                        <span>Net Time</span>
-                        <strong className="font-mono">{fmtDuration(row.net_work_minutes || 0)}</strong>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* TAB 2: SHOP QR */}
+          {/* TAB 2: SHOP QR SCREEN */}
           {tab === 'qr' && (
             <section className="content-card qr-container-card">
               <div className="card-header" style={{ justifyContent: 'center' }}>
-                <h3 className="card-title">Live Shop Screen QR</h3>
+                <h3 className="card-title">Live Shop Screen Attendance Kiosk</h3>
               </div>
               <p style={{ color: '#64748B', fontSize: '0.9rem', marginTop: '12px' }}>
-                Mount this display at the shop checkout or entry desk. Staff scan this QR from their registered smartphones.
+                Mount this display at the shop checkout. Staff scan the QR code with their phone camera, or type the 6-character live passcode below if their camera is unavailable.
               </p>
 
               {qr ? (
@@ -938,38 +1179,61 @@ export function App() {
                   <div className="qr-code-frame">
                     <img src={qr.dataUrl} alt="Live rotating QR attendance code" />
                   </div>
+
+                  {/* 6-Character Live Passcode */}
+                  {qr.passcode && (
+                    <div className="qr-passcode-display">
+                      <span>Live 6-Character Passcode</span>
+                      <strong className="font-mono">{qr.passcode}</strong>
+                    </div>
+                  )}
+
                   <div className="qr-countdown font-mono">
                     <Clock size={16} />
-                    <span>Expires at {new Date(qr.expiresAt * 1000).toLocaleTimeString()}</span>
+                    <span>Rotates in {new Date(qr.expiresAt * 1000).toLocaleTimeString()}</span>
                   </div>
                 </>
               ) : (
                 <div style={{ padding: '60px 20px', color: '#94A3B8' }}>
-                  Generating cryptographically signed QR…
+                  Generating cryptographically signed QR & passcode…
                 </div>
               )}
 
               <p className="login-footer" style={{ marginTop: '20px' }}>
-                <ShieldCheck size={16} /> HMAC-SHA256 Token Signature · 30-Second Rotation · Single-Use Anti-Replay
+                <ShieldCheck size={16} /> HMAC-SHA256 Token Signature · 45-Second Rotation · Single-Use Anti-Replay
               </p>
             </section>
           )}
 
-          {/* TAB 3: STAFF MANAGEMENT & WHERE THEY CAN LOGIN */}
+          {/* TAB 3: STAFF MANAGEMENT & LOGIN INFO */}
           {tab === 'staff' && (
             <div>
-              {/* WHERE STAFF CAN LOGIN IT - Top Informational Banner */}
+              {/* WHERE STAFF CAN LOGIN IT - Top Informational Banner + Instant QR */}
               <div className="portal-link-banner">
                 <div className="portal-link-header">
-                  <div>
-                    <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#064E3B' }}>
+                  <div style={{ flex: 1 }}>
+                    <h4 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#064E3B' }}>
                       Where Staff Can Log In
                     </h4>
-                    <p style={{ fontSize: '0.85rem', color: '#475569', marginTop: '2px' }}>
-                      Tell staff to open this web address on their smartphones to sign in:
+                    <p style={{ fontSize: '0.85rem', color: '#475569', marginTop: '3px' }}>
+                      Staff can open this portal URL on their phone browser to sign in and mark attendance:
                     </p>
+                    <div className="portal-url-badge" style={{ marginTop: '10px' }}>
+                      <Smartphone size={16} />
+                      <span>{portalUrl}</span>
+                    </div>
                   </div>
 
+                  {/* Instant QR Code for staff to scan and open the login page directly */}
+                  {portalQrData && (
+                    <div style={{ textAlign: 'center', background: '#F8FAFC', padding: '10px', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+                      <img src={portalQrData} alt="Scan to open login portal" style={{ width: 110, height: 110, display: 'block' }} />
+                      <span style={{ fontSize: '0.7rem', color: '#64748B', fontWeight: 600 }}>Scan with Phone</span>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <button
                     className="btn-accent"
                     style={{ padding: '8px 14px', fontSize: '0.82rem' }}
@@ -982,11 +1246,15 @@ export function App() {
                   >
                     <Copy size={15} /> Copy Staff Login Instructions
                   </button>
-                </div>
-
-                <div className="portal-url-badge">
-                  <Smartphone size={16} />
-                  <span>{portalUrl}</span>
+                  <a
+                    className="btn-secondary"
+                    style={{ padding: '8px 14px', fontSize: '0.82rem' }}
+                    href={portalUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <ExternalLink size={15} /> Open Portal in New Tab
+                  </a>
                 </div>
               </div>
 
@@ -1096,26 +1364,26 @@ export function App() {
                     </button>
                   </form>
 
-                  {/* Owner Unique PIN Configuration */}
+                  {/* Admin Unique PIN Configuration */}
                   <div style={{ marginTop: '32px', paddingTop: '20px', borderTop: '1px solid #E2E8F0' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                       <KeyRound size={17} color="#064E3B" />
                       <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#064E3B' }}>
-                        Owner Unique PIN
+                        Admin Unique PIN
                       </h4>
                     </div>
                     <p style={{ fontSize: '0.8rem', color: '#64748B', marginBottom: '12px' }}>
-                      Owner Login ID is <strong>OWNER</strong>. You can change your private Owner PIN below.
+                      Admin Login ID is <strong>ADMIN</strong>. You can change your private Admin PIN below.
                     </p>
 
-                    <form onSubmit={handleUpdateOwnerPin}>
+                    <form onSubmit={handleUpdateAdminPin}>
                       <div className="form-group">
                         <input
                           type="password"
                           inputMode="numeric"
                           maxLength={8}
-                          value={ownerNewPin}
-                          onChange={e => setOwnerNewPin(e.target.value)}
+                          value={adminNewPin}
+                          onChange={e => setAdminNewPin(e.target.value)}
                           placeholder="Enter new 4–8 digit PIN"
                           className="form-input no-left-icon font-mono"
                           required
@@ -1126,7 +1394,7 @@ export function App() {
                         className="btn-secondary"
                         style={{ width: '100%', justifyContent: 'center' }}
                       >
-                        Update Owner PIN
+                        Update Admin PIN
                       </button>
                     </form>
                     {pinChangeMsg && (
@@ -1137,7 +1405,7 @@ export function App() {
                   </div>
                 </div>
 
-                {/* Staff Directory List */}
+                {/* Staff Directory List (with Delete Button) */}
                 <div className="content-card directory-list">
                   <div className="card-header" style={{ paddingLeft: '0', paddingRight: '0' }}>
                     <h3 className="card-title">Staff Members ({staff.length})</h3>
@@ -1165,7 +1433,7 @@ export function App() {
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', gap: '8px' }}>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                         <button
                           type="button"
                           className="btn-secondary"
@@ -1180,12 +1448,23 @@ export function App() {
                         >
                           <Copy size={13} />
                         </button>
+
                         <button
                           type="button"
                           className="btn-secondary"
+                          style={{ padding: '6px 10px', fontSize: '0.78rem' }}
                           onClick={() => handleToggleStaff(s.id)}
                         >
                           {s.active ? 'Deactivate' : 'Activate'}
+                        </button>
+
+                        <button
+                          type="button"
+                          className="btn-delete-staff"
+                          onClick={() => handleDeleteStaff(s.id, s.name, s.code)}
+                          title="Delete staff member"
+                        >
+                          <Trash2 size={13} /> Delete
                         </button>
                       </div>
                     </div>
@@ -1200,14 +1479,14 @@ export function App() {
             </div>
           )}
 
-          {/* TAB 4: REGISTERED DEVICES */}
+          {/* TAB 4: REGISTERED PHONES */}
           {tab === 'devices' && (
             <section className="content-card">
               <div className="card-header">
                 <div>
                   <h3 className="card-title">Registered Staff Smartphones</h3>
                   <p style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '2px' }}>
-                    First-time logins require owner device approval before shifts can be logged.
+                    Staff phones are automatically registered and approved on their first valid login.
                   </p>
                 </div>
               </div>
@@ -1351,8 +1630,9 @@ function StatusBadge({ status }) {
   let label = s.replaceAll('_', ' ');
 
   if (s === 'in' || s === 'present') label = 'Present';
+  else if (s === 'absent') label = 'Absent';
   else if (s === 'lunch' || s === 'break') label = 'On Lunch';
-  else if (s === 'out' || s === 'absent') label = 'Checked Out';
+  else if (s === 'out') label = 'Checked Out';
 
   return (
     <span className={`status-badge ${s}`}>

@@ -1368,3 +1368,172 @@ button {
   color: var(--text-primary);
   margin-top: 2px;
 }
+
+/* Calendar & Date Filter Bar */
+.calendar-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  background: #FFFFFF;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-card);
+  padding: 14px 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+  flex-wrap: wrap;
+}
+
+.calendar-input-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.calendar-date-input {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  padding: 8px 12px;
+  border: 1px solid var(--border-card);
+  border-radius: 10px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: #F8FAFC;
+  outline: none;
+}
+
+.calendar-date-input:focus {
+  border-color: var(--emerald-600);
+  background: #FFFFFF;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+}
+
+.date-pill-btn {
+  padding: 7px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 1px solid var(--border-card);
+  background: #F8FAFC;
+  color: var(--text-secondary);
+}
+
+.date-pill-btn.active {
+  background: var(--emerald-900);
+  color: #FFFFFF;
+  border-color: var(--emerald-900);
+}
+
+.btn-delete-staff {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #FECDD3;
+  background: #FFF1F2;
+  color: #E11D48;
+  font-size: 0.78rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.btn-delete-staff:hover {
+  background: #FEE2E2;
+  border-color: #FDA4AF;
+  color: #BE123C;
+}
+
+/* Multi-Method QR / Passcode Scanner Modal */
+.scanner-container-card {
+  background: #FFFFFF;
+  border: 1.5px solid var(--emerald-500);
+  border-radius: 20px;
+  padding: 20px;
+  margin: 16px 0;
+  box-shadow: var(--shadow-hover);
+}
+
+.scanner-method-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 16px;
+  background: #F1F5F9;
+  padding: 4px;
+  border-radius: 12px;
+}
+
+.scanner-method-btn {
+  padding: 8px 6px;
+  border-radius: 9px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.scanner-method-btn.active {
+  background: #FFFFFF;
+  color: var(--emerald-900);
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.passcode-input-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.passcode-large-input {
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  letter-spacing: 0.25em;
+  text-align: center;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 14px;
+  border: 2px solid #CBD5E1;
+  border-radius: 14px;
+  background: #F8FAFC;
+}
+
+.passcode-large-input:focus {
+  outline: none;
+  border-color: var(--emerald-500);
+  background: #FFFFFF;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+}
+
+.qr-passcode-display {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  background: #F8FAFC;
+  border: 2px dashed #CBD5E1;
+  padding: 10px 24px;
+  border-radius: 14px;
+  margin: 12px auto;
+}
+
+.qr-passcode-display span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+}
+
+.qr-passcode-display strong {
+  font-family: var(--font-mono);
+  font-size: 1.6rem;
+  letter-spacing: 0.15em;
+  color: var(--emerald-900);
+  font-weight: 800;
+}

@@ -281,20 +281,12 @@ app.post(
 
     if (!device) {
       db.prepare(
-        'INSERT INTO devices (staff_id, device_key, approved, created_at) VALUES (?, ?, 0, ?)'
+        'INSERT INTO devices (staff_id, device_key, approved, created_at) VALUES (?, ?, 1, ?)'
       ).run(staff.id, deviceKey, nowIso());
 
-      logScan(staff.id, null, deviceKey, 'device_pending', 'New device requires owner approval');
-
-      return res.status(403).json({
-        error: 'This device is awaiting owner approval. Ask the shop owner to approve it in the console.'
-      });
-    }
-
-    if (!device.approved) {
-      return res.status(403).json({
-        error: 'This device is not approved yet. Ask the shop owner to approve it.'
-      });
+      logScan(staff.id, null, deviceKey, 'device_approved', 'New device registered & approved');
+    } else if (!device.approved) {
+      db.prepare('UPDATE devices SET approved = 1 WHERE id = ?').run(device.id);
     }
 
     req.session.regenerate(err => {
@@ -419,26 +411,18 @@ app.post(
       db.prepare(`
         INSERT INTO devices
         (staff_id, device_key, approved, created_at)
-        VALUES (?, ?, 0, ?)
+        VALUES (?, ?, 1, ?)
       `).run(staff.id, deviceKey, nowIso());
 
       logScan(
         staff.id,
         null,
         deviceKey,
-        'device_pending',
-        'New device requires owner approval'
+        'device_approved',
+        'New device registered & approved'
       );
-
-      return res.status(403).json({
-        error: 'This phone is awaiting owner approval. Ask the shop owner to approve it.'
-      });
-    }
-
-    if (!device.approved) {
-      return res.status(403).json({
-        error: 'This phone is not approved yet. Ask the shop owner.'
-      });
+    } else if (!device.approved) {
+      db.prepare('UPDATE devices SET approved = 1 WHERE id = ?').run(device.id);
     }
 
     req.session.regenerate(err => {
@@ -470,9 +454,10 @@ app.post(
 // Generate live QR code
 app.get('/api/owner/qr', ownerOnly, async (req, res) => {
   const id = crypto.randomBytes(18).toString('hex');
-  const expires = Math.floor(Date.now() / 1000) + 30;
+  const passcode = id.slice(0, 6).toUpperCase();
+  const expires = Math.floor(Date.now() / 1000) + 45;
 
-  const payload = { id, exp: expires, v: 1 };
+  const payload = { id, exp: expires, v: 1, code: passcode };
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const token = body + '.' + sign(body);
 
@@ -486,12 +471,12 @@ app.get('/api/owner/qr', ownerOnly, async (req, res) => {
   ).run(Math.floor(Date.now() / 1000) - 60);
 
   const dataUrl = await QRCode.toDataURL(token, {
-    width: 280,
+    width: 320,
     margin: 2,
     errorCorrectionLevel: 'M'
   });
 
-  res.json({ token, dataUrl, expiresAt: expires });
+  res.json({ token, dataUrl, expiresAt: expires, passcode });
 });
 
 // Add staff
@@ -578,8 +563,30 @@ app.post('/api/owner/staff/:id/toggle', ownerOnly, (req, res) => {
   res.json({ ok: true });
 });
 
-// Owner attendance board
+// Delete staff member (permanent deletion)
+app.delete('/api/owner/staff/:id', ownerOnly, (req, res) => {
+  const staffId = Number(req.params.id);
+  db.prepare('DELETE FROM scans WHERE staff_id = ?').run(staffId);
+  db.prepare('DELETE FROM devices WHERE staff_id = ?').run(staffId);
+  db.prepare('DELETE FROM attendance WHERE staff_id = ?').run(staffId);
+  db.prepare('DELETE FROM staff WHERE id = ?').run(staffId);
+
+  res.json({ ok: true, message: 'Staff member deleted successfully' });
+});
+
+app.post('/api/owner/staff/:id/delete', ownerOnly, (req, res) => {
+  const staffId = Number(req.params.id);
+  db.prepare('DELETE FROM scans WHERE staff_id = ?').run(staffId);
+  db.prepare('DELETE FROM devices WHERE staff_id = ?').run(staffId);
+  db.prepare('DELETE FROM attendance WHERE staff_id = ?').run(staffId);
+  db.prepare('DELETE FROM staff WHERE id = ?').run(staffId);
+
+  res.json({ ok: true, message: 'Staff member deleted successfully' });
+});
+
+// Admin attendance board with calendar date filter
 app.get('/api/owner/board', ownerOnly, (req, res) => {
+  const targetDate = String(req.query.date || today()).slice(0, 10);
   const rows = db.prepare(`
     SELECT s.id, s.code, s.name, a.status, a.clock_in,
     a.break_started, a.clock_out, a.total_break_minutes,
@@ -589,12 +596,13 @@ app.get('/api/owner/board', ownerOnly, (req, res) => {
     ON a.staff_id = s.id AND a.work_date = ?
     WHERE s.active = 1
     ORDER BY s.name
-  `).all(today());
+  `).all(targetDate);
 
   res.json(
     rows.map(row => ({
       ...row,
-      status: row.status || 'out'
+      work_date: targetDate,
+      status: row.clock_in ? (row.status || 'out') : 'absent'
     }))
   );
 });
@@ -699,40 +707,55 @@ app.post('/api/attendance/scan', staffOnly, (req, res) => {
     );
   }
 
-  const parts = token.split('.');
+  let payloadId = null;
 
-  if (
-    parts.length !== 2 ||
-    !safeEqual(sign(parts[0]), parts[1])
-  ) {
-    return fail('failed_qr', 'Invalid QR signature.', 403);
-  }
+  if (token.includes('.')) {
+    const parts = token.split('.');
 
-  let payload;
+    if (
+      parts.length !== 2 ||
+      !safeEqual(sign(parts[0]), parts[1])
+    ) {
+      return fail('failed_qr', 'Invalid QR signature.', 403);
+    }
 
-  try {
-    payload = JSON.parse(
-      Buffer.from(parts[0], 'base64url').toString('utf8')
-    );
-  } catch {
-    return fail('failed_qr', 'Unreadable QR token.', 403);
-  }
+    try {
+      const payload = JSON.parse(
+        Buffer.from(parts[0], 'base64url').toString('utf8')
+      );
 
-  if (
-    !payload.id ||
-    !Number.isInteger(payload.exp) ||
-    payload.exp < Math.floor(Date.now() / 1000)
-  ) {
-    return fail(
-      'expired_qr',
-      'QR code expired. Scan the live shop screen again.',
-      403
-    );
+      if (
+        !payload.id ||
+        !Number.isInteger(payload.exp) ||
+        payload.exp < Math.floor(Date.now() / 1000)
+      ) {
+        return fail(
+          'expired_qr',
+          'QR code expired. Scan the live shop screen again.',
+          403
+        );
+      }
+      payloadId = payload.id;
+    } catch {
+      return fail('failed_qr', 'Unreadable QR token.', 403);
+    }
+  } else {
+    // 6-character live shop passcode support
+    const cleanPasscode = token.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const now = Math.floor(Date.now() / 1000);
+    const challenge = db.prepare(
+      'SELECT id FROM qr_challenges WHERE id LIKE ? AND used = 0 AND expires_at >= ?'
+    ).get(cleanPasscode + '%', now);
+
+    if (!challenge) {
+      return fail('invalid_passcode', 'Invalid or expired shop QR passcode.', 403);
+    }
+    payloadId = challenge.id;
   }
 
   const challenge = db.prepare(
     'SELECT * FROM qr_challenges WHERE id = ?'
-  ).get(payload.id);
+  ).get(payloadId);
 
   if (
     !challenge ||
@@ -749,7 +772,7 @@ app.post('/api/attendance/scan', staffOnly, (req, res) => {
   const result = db.prepare(`
     UPDATE qr_challenges SET used = 1
     WHERE id = ? AND used = 0
-  `).run(payload.id);
+  `).run(payloadId);
 
   if (result.changes !== 1) {
     return fail('replay_qr', 'QR code has already been used.', 403);
