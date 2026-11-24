@@ -2272,7 +2272,7 @@ export function App() {
                   <thead>
                     <tr>
                       <th>Staff Member</th>
-                      <th>Device Fingerprint</th>
+                      <th>Device ID</th>
                       <th>Status</th>
                       <th>Registered At</th>
                       <th>Action</th>
