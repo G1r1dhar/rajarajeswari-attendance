@@ -1065,17 +1065,11 @@ export function App() {
       {/* Top Bar */}
       <header className="app-topbar">
         <div className="topbar-brand">
-          <div className="topbar-logo">
-            <Store size={22} />
+          <div className="topbar-logo-badge" title="Raja Rajeswari General Stores">
+            <span className="topbar-monogram">RRGS</span>
           </div>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h1 className="topbar-title">Rajarajeswari</h1>
-              <span className="live-db-pill">
-                <span className="pulse-dot green" /> MongoDB Cloud
-              </span>
-            </div>
-            <p className="topbar-subtitle">Retail Workforce & Attendance Platform</p>
+            <h1 className="topbar-title">Raja Rajeswari General Stores</h1>
           </div>
         </div>
 
@@ -1680,14 +1674,9 @@ export function App() {
             B. ADMIN DASHBOARD LAYOUT
             ---------------------------------------------------- */
         <div>
-          <div className="owner-header-row">
-            <div className="owner-title-block">
-              <p className="section-label">Retail Operations</p>
-              <h2>Admin Attendance & Staff Console</h2>
-              <p>Attendance calendar, live shop QR kiosk, and staff administration</p>
-            </div>
-            <button className="btn-secondary" onClick={() => refreshAdmin(selectedDate)}>
-              <RefreshCw size={15} /> Refresh Data
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+            <button className="btn-secondary" onClick={() => refreshAdmin(selectedDate)} style={{ height: '34px', fontSize: '0.8rem', padding: '0 12px', gap: '6px' }}>
+              <RefreshCw size={13} /> Refresh Data
             </button>
           </div>
 
@@ -2161,17 +2150,10 @@ export function App() {
 
           {/* TAB 2: SHOP QR SCREEN */}
           {tab === 'qr' && (
-            <section className="content-card qr-container-card">
-              <div className="card-header" style={{ justifyContent: 'center' }}>
-                <h3 className="card-title">Live Shop Screen Attendance Kiosk</h3>
-              </div>
-              <p style={{ color: '#64748B', fontSize: '0.9rem', marginTop: '12px' }}>
-                Mount this display at the shop checkout. Staff scan the QR code with their phone camera, or type the 6-character live passcode below if their camera is unavailable.
-              </p>
-
+            <section className="content-card qr-container-card" style={{ padding: '36px 20px', maxWidth: '540px', margin: '0 auto', textAlign: 'center' }}>
               {qr ? (
                 <>
-                  <div className="qr-code-frame">
+                  <div className="qr-code-frame" style={{ margin: '0 auto 24px' }}>
                     <img src={qr.dataUrl} alt="Live rotating QR attendance code" />
                     <div className="qr-scanner-line" />
                   </div>
@@ -2189,67 +2171,12 @@ export function App() {
                       <p className="passcode-hint">Staff can type these 6 letters into their phone if camera scanning is unavailable</p>
                     </div>
                   )}
-
-                  {qr.scanUrl && (
-                    <div className="qr-direct-link-strip">
-                      <Smartphone size={15} color="#059669" />
-                      <span className="direct-link-text font-mono">{qr.scanUrl}</span>
-                      <button
-                        type="button"
-                        className="btn-copy-link"
-                        onClick={() => copyToClipboard(qr.scanUrl, 'Direct scan link copied!')}
-                      >
-                        <Copy size={13} /> Copy Link
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="qr-countdown font-mono">
-                    <Clock size={16} />
-                    <span>Auto-rotates every 90s (Anti-Replay Security) · Valid until {new Date(qr.expiresAt * 1000).toLocaleTimeString()}</span>
-                  </div>
-
-                  <div className="shop-location-card" style={{
-                    marginTop: '20px',
-                    padding: '16px 20px',
-                    borderRadius: '12px',
-                    background: '#F8FAFC',
-                    border: '1px solid #E2E8F0',
-                    textAlign: 'left'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <MapPin size={16} color="#059669" />
-                          <span>Shop Geofence Verification Zone</span>
-                        </div>
-                        <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: '#64748B' }}>
-                          {status?.configured
-                            ? `Center: ${status.shopLat?.toFixed(4)}, ${status.shopLng?.toFixed(4)} · Maximum Radius: ${status.geofenceMeters || 100}m`
-                            : 'GPS coordinates not configured yet.'}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        style={{ padding: '8px 14px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}
-                        onClick={calibrateShopLocation}
-                        disabled={busy}
-                      >
-                        <Compass size={14} /> Calibrate Shop to My Location
-                      </button>
-                    </div>
-                  </div>
                 </>
               ) : (
                 <div style={{ padding: '60px 20px', color: '#94A3B8' }}>
-                  Generating cryptographically signed QR & passcode…
+                  Generating QR code and passcode…
                 </div>
               )}
-
-              <p className="login-footer" style={{ marginTop: '20px' }}>
-                <ShieldCheck size={16} /> HMAC-SHA256 Token Signature · 90-Second Rotation · Single-Use Anti-Replay
-              </p>
             </section>
           )}
 
@@ -2823,10 +2750,6 @@ export function App() {
           </div>
         </div>
       )}
-
-      <footer className="app-footer-credit">
-        Rajarajeswari Staff Attendance · Modern Enterprise Retail SaaS
-      </footer>
 
       <ToastNotice message={message} error={error} />
     </div>
