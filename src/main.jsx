@@ -934,7 +934,6 @@ export function App() {
         <section className="login-card">
           <div className="login-card-header">
             <h2>Sign In</h2>
-            <p>Enter your assigned ID and PIN or scan your QR to access</p>
           </div>
 
           <div className="login-role-selector">
@@ -1006,14 +1005,6 @@ export function App() {
               </div>
             </div>
 
-            <div className="login-role-hint">
-              <Info size={16} style={{ flexShrink: 0, marginTop: '2px', color: '#059669' }} />
-              <div>
-                <strong>Staff:</strong> Enter your Staff ID (<code>RR001</code>) or Name (<code>RAJ</code>) and PIN (<code>1234</code>).<br />
-                <strong>Admin:</strong> Enter ID <code>ADMIN</code> and Admin PIN (<code>1234</code>).
-              </div>
-            </div>
-
             <button type="submit" className="btn-primary" disabled={busy}>
               <ChevronRight size={18} /> {busy ? 'Verifying Credentials…' : 'Sign In'}
             </button>
@@ -1041,10 +1032,6 @@ export function App() {
               </button>
             </div>
           )}
-
-          <div className="login-footer">
-            <ShieldCheck size={14} /> Retail SaaS Grade Security · Rajarajeswari
-          </div>
         </section>
 
         <ToastNotice message={message} error={error} />
