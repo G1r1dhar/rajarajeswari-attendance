@@ -17,6 +17,64 @@ export function isMongo() {
   return usingMongo;
 }
 
+export function createMongoSessionStore(session) {
+  const Store = session.Store;
+  return class MongoSessionStore extends Store {
+    constructor(options = {}) {
+      super(options);
+    }
+    async get(sid, fn) {
+      try {
+        if (!mongoDb) return fn(null, null);
+        const doc = await mongoDb.collection('sessions').findOne({ _id: sid });
+        if (!doc) return fn(null, null);
+        if (doc.expires && new Date(doc.expires) < new Date()) {
+          await mongoDb.collection('sessions').deleteOne({ _id: sid });
+          return fn(null, null);
+        }
+        return fn(null, doc.session);
+      } catch (err) {
+        return fn(err);
+      }
+    }
+    async set(sid, sess, fn) {
+      try {
+        if (!mongoDb) return fn ? fn(null) : null;
+        const expires = sess.cookie?.expires ? new Date(sess.cookie.expires) : new Date(Date.now() + 8 * 60 * 60 * 1000);
+        await mongoDb.collection('sessions').updateOne(
+          { _id: sid },
+          { $set: { session: sess, expires } },
+          { upsert: true }
+        );
+        return fn ? fn(null) : null;
+      } catch (err) {
+        return fn ? fn(err) : null;
+      }
+    }
+    async destroy(sid, fn) {
+      try {
+        if (mongoDb) await mongoDb.collection('sessions').deleteOne({ _id: sid });
+        return fn ? fn(null) : null;
+      } catch (err) {
+        return fn ? fn(err) : null;
+      }
+    }
+    async touch(sid, sess, fn) {
+      try {
+        if (!mongoDb) return fn ? fn(null) : null;
+        const expires = sess.cookie?.expires ? new Date(sess.cookie.expires) : new Date(Date.now() + 8 * 60 * 60 * 1000);
+        await mongoDb.collection('sessions').updateOne(
+          { _id: sid },
+          { $set: { expires } }
+        );
+        return fn ? fn(null) : null;
+      } catch (err) {
+        return fn ? fn(err) : null;
+      }
+    }
+  };
+}
+
 const nowIso = () => new Date().toISOString();
 const today = () => new Date().toISOString().slice(0, 10);
 

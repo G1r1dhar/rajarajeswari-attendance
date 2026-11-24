@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prebuild": "npm install",
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "start": "node server.js"
@@ -15,7 +16,6 @@
     "@vitejs/plugin-react": "^4.3.4",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.8.1",
-    "connect-mongo": "^6.0.0",
     "connect-sqlite3": "^0.9.15",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",

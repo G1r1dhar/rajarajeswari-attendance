@@ -1,7 +1,6 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import session from 'express-session';
-import MongoStore from 'connect-mongo';
 import connectSqlite3 from 'connect-sqlite3';
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
@@ -16,6 +15,7 @@ import os from 'node:os';
 import {
   initDb,
   isMongo,
+  createMongoSessionStore,
   getOwnerPin,
   setOwnerPin,
   findStaffByCode,
@@ -107,12 +107,8 @@ app.use(express.json({ limit: '32kb' }));
 // Initialize Session Store
 let sessionStore;
 if (process.env.MONGODB_URI) {
-  sessionStore = MongoStore.create({
-    mongoUrl: process.env.MONGODB_URI,
-    dbName: process.env.MONGODB_DB_NAME || 'rajarajeswari',
-    collectionName: 'sessions',
-    ttl: 8 * 60 * 60
-  });
+  const MongoSessionStore = createMongoSessionStore(session);
+  sessionStore = new MongoSessionStore();
 } else {
   const SQLiteStore = connectSqlite3(session);
   sessionStore = new SQLiteStore({
