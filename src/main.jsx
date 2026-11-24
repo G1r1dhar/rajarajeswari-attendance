@@ -845,8 +845,10 @@ export function App() {
       result = result.filter(item => item.status === 'in');
     } else if (statusFilter === 'lunch') {
       result = result.filter(item => item.status === 'lunch');
+    } else if (statusFilter === 'emergency') {
+      result = result.filter(item => item.status === 'emergency');
     } else if (statusFilter === 'completed' || statusFilter === 'out') {
-      result = result.filter(item => item.status === 'out' && item.clock_in);
+      result = result.filter(item => (item.status === 'out' || item.status === 'day_off') && item.clock_in);
     } else if (statusFilter === 'absent') {
       result = result.filter(item => item.status === 'absent' || !item.clock_in);
     }
@@ -869,8 +871,12 @@ export function App() {
     () => board.filter(b => b.status === 'lunch').length,
     [board]
   );
+  const emergencyCount = useMemo(
+    () => board.filter(b => b.status === 'emergency').length,
+    [board]
+  );
   const completedCount = useMemo(
-    () => board.filter(b => b.status === 'out' && b.clock_in).length,
+    () => board.filter(b => (b.status === 'out' || b.status === 'day_off') && b.clock_in).length,
     [board]
   );
   const absentCount = useMemo(
@@ -1134,7 +1140,66 @@ export function App() {
             </div>
 
             <div className="attendance-action-grid">
-              {currentStatus === 'out' ? (
+              {currentStatus === 'day_off' ? (
+                <div style={{
+                  padding: '16px',
+                  borderRadius: '12px',
+                  background: '#FEF2F2',
+                  border: '1.5px solid #FECACA',
+                  textAlign: 'center',
+                  width: '100%'
+                }}>
+                  <AlertTriangle size={32} color="#DC2626" style={{ margin: '0 auto 8px' }} />
+                  <h4 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 700, color: '#991B1B' }}>
+                    Day Off (Emergency Exit Recorded)
+                  </h4>
+                  <p style={{ margin: 0, fontSize: '0.84rem', color: '#B91C1C' }}>
+                    Departed: {fmtTime(me?.attendance?.emergency_start || me?.attendance?.clock_out)} • {fmtDuration(me?.attendance?.net_work_minutes || 0)} worked
+                  </p>
+                  {me?.attendance?.note && (
+                    <p style={{ margin: '6px 0 0', fontSize: '0.78rem', color: '#7F1D1D', fontStyle: 'italic' }}>
+                      {me.attendance.note}
+                    </p>
+                  )}
+                </div>
+              ) : currentStatus === 'emergency' ? (
+                <div style={{
+                  padding: '16px',
+                  borderRadius: '12px',
+                  background: '#FFFBEB',
+                  border: '1.5px solid #FDE68A',
+                  width: '100%',
+                  textAlign: 'center'
+                }}>
+                  <AlertTriangle size={30} color="#D97706" style={{ margin: '0 auto 8px' }} />
+                  <h4 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 700, color: '#92400E' }}>
+                    Out on Emergency Exit
+                  </h4>
+                  <p style={{ margin: '0 0 14px', fontSize: '0.84rem', color: '#B45309' }}>
+                    Left at {fmtTime(me?.attendance?.emergency_start || me?.attendance?.emergency_started)}. Scan shop QR when you return, or tap Leave for Day if not returning.
+                  </p>
+                  <div className="split-action-row">
+                    <button
+                      type="button"
+                      className="btn-emergency-return"
+                      onClick={() => startScanner('emergency')}
+                      disabled={busy}
+                    >
+                      <CheckCircle2 size={18} />
+                      <span>Return from Emergency (Resume Duty)</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-checkout"
+                      onClick={() => startScanner('out')}
+                      disabled={busy}
+                    >
+                      <LogOut size={18} />
+                      <span>Leave for Day (Day Off)</span>
+                    </button>
+                  </div>
+                </div>
+              ) : currentStatus === 'out' ? (
                 me?.attendance?.clock_in && me?.attendance?.clock_out ? (
                   <div style={{
                     padding: '16px',
@@ -1151,6 +1216,11 @@ export function App() {
                     <p style={{ margin: 0, fontSize: '0.84rem', color: '#64748B' }}>
                       Entry: {fmtTime(me.attendance.clock_in)} • Exit: {fmtTime(me.attendance.clock_out)} ({fmtDuration(me.attendance.net_work_minutes || 0)} worked)
                     </p>
+                    {me?.attendance?.note && (
+                      <p style={{ margin: '6px 0 0', fontSize: '0.78rem', color: '#64748B', fontStyle: 'italic' }}>
+                        {me.attendance.note}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <button
@@ -1237,18 +1307,27 @@ export function App() {
                         </div>
                       );
                     })()}
-                    <button
-                      className="btn-checkout"
-                      style={{ width: '100%', height: '52px', fontSize: '1rem', fontWeight: 600 }}
-                      onClick={() => startScanner('out')}
-                      disabled={busy}
-                    >
-                      <LogOut size={20} />
-                      <span>Check Out</span>
-                    </button>
+                    <div className="split-action-row">
+                      <button
+                        className="btn-emergency"
+                        onClick={() => startScanner('emergency')}
+                        disabled={busy}
+                      >
+                        <AlertTriangle size={18} />
+                        <span>Emergency Exit</span>
+                      </button>
+                      <button
+                        className="btn-checkout"
+                        onClick={() => startScanner('out')}
+                        disabled={busy}
+                      >
+                        <LogOut size={18} />
+                        <span>Check Out</span>
+                      </button>
+                    </div>
                   </>
                 ) : (
-                  <div className="split-action-row">
+                  <div className="triple-action-row">
                     <button
                       className="btn-lunch"
                       onClick={() => startScanner('lunch')}
@@ -1256,6 +1335,14 @@ export function App() {
                     >
                       <Coffee size={18} />
                       <span>Start Lunch</span>
+                    </button>
+                    <button
+                      className="btn-emergency"
+                      onClick={() => startScanner('emergency')}
+                      disabled={busy}
+                    >
+                      <AlertTriangle size={18} />
+                      <span>Emergency Exit</span>
                     </button>
                     <button
                       className="btn-checkout"
@@ -1267,7 +1354,7 @@ export function App() {
                     </button>
                   </div>
                 )
-              ) : (
+              ) : currentStatus === 'lunch' ? (
                 <div className="split-action-row">
                   <button
                     className="btn-lunch"
@@ -1287,7 +1374,7 @@ export function App() {
                     <span>Check Out</span>
                   </button>
                 </div>
-              )}
+              ) : null}
 
               {(!me?.attendance?.clock_in || !me?.attendance?.clock_out) && (
                 <button
@@ -1450,9 +1537,36 @@ export function App() {
                 </span>
               </div>
 
+              {(me?.attendance?.emergency_start || me?.attendance?.emergency_started) && (
+                <>
+                  <div className={`timeline-item ${me?.attendance?.emergency_start || me?.attendance?.emergency_started ? 'active' : ''}`}>
+                    <span className="timeline-dot" style={{ background: '#D97706' }} />
+                    <span className="timeline-label">Emergency Exit</span>
+                    <span className="timeline-time font-mono">{fmtTime(me?.attendance?.emergency_start || me?.attendance?.emergency_started)}</span>
+                  </div>
+
+                  <div className={`timeline-item ${me?.attendance?.emergency_end ? 'active' : ''}`}>
+                    <span className="timeline-dot" style={{ background: '#059669' }} />
+                    <span className="timeline-label">Emergency Return</span>
+                    <span className="timeline-time font-mono">{me?.attendance?.emergency_end ? fmtTime(me?.attendance?.emergency_end) : (me?.attendance?.status === 'emergency' ? 'Active Exit' : '—')}</span>
+                  </div>
+
+                  {(me?.attendance?.total_emergency_minutes || 0) > 0 && (
+                    <div className="timeline-item active">
+                      <span className="timeline-dot" style={{ background: '#D97706' }} />
+                      <span className="timeline-label">Emergency Duration</span>
+                      <span className="timeline-time font-mono">{me?.attendance?.total_emergency_minutes} mins</span>
+                    </div>
+                  )}
+                </>
+              )}
+
               <div className={`timeline-item ${me?.attendance?.clock_out ? 'active' : ''}`}>
                 <span className="timeline-dot" />
-                <span className="timeline-label">Exit (Clock Out)</span>
+                <span className="timeline-label">
+                  Exit (Clock Out)
+                  {me?.attendance?.auto_cut ? ' • Auto Cut 9:45 PM' : ''}
+                </span>
                 <span className="timeline-time font-mono">{fmtTime(me?.attendance?.clock_out)}</span>
               </div>
             </div>
@@ -1724,6 +1838,14 @@ export function App() {
                   </button>
                   <button
                     type="button"
+                    className={`date-pill-btn ${statusFilter === 'emergency' ? 'active' : ''}`}
+                    style={statusFilter === 'emergency' ? { background: '#B45309', borderColor: '#B45309', color: '#fff' } : {}}
+                    onClick={() => setStatusFilter('emergency')}
+                  >
+                    Emergency ({emergencyCount})
+                  </button>
+                  <button
+                    type="button"
                     className={`date-pill-btn ${statusFilter === 'completed' ? 'active' : ''}`}
                     style={statusFilter === 'completed' ? { background: '#2563EB', borderColor: '#2563EB', color: '#fff' } : {}}
                     onClick={() => setStatusFilter('completed')}
@@ -1788,6 +1910,7 @@ export function App() {
                         <th>Attendance Status</th>
                         <th>Entry Time</th>
                         <th>Lunch Break (Start – End / Duration)</th>
+                        <th>Emergency Break</th>
                         <th>Exit Time</th>
                         <th>Total Hours</th>
                       </tr>
@@ -1862,7 +1985,57 @@ export function App() {
                               <span className="font-mono" style={{ color: '#94A3B8' }}>—</span>
                             )}
                           </td>
-                          <td className="font-mono">{fmtTime(row.clock_out)}</td>
+                          <td>
+                            {row.status === 'emergency' ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <span style={{ fontSize: '0.78rem', color: '#D97706', fontWeight: 600 }}>
+                                  Left: {fmtTime(row.emergency_start || row.emergency_started)}
+                                </span>
+                                <span style={{
+                                  padding: '2px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
+                                  background: '#FFFBEB',
+                                  color: '#D97706',
+                                  border: '1px solid #FDE68A',
+                                  width: 'fit-content'
+                                }}>
+                                  Out on Emergency
+                                </span>
+                              </div>
+                            ) : (row.total_emergency_minutes || 0) > 0 || row.emergency_end ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                <div style={{ fontSize: '0.78rem', color: '#334155', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                                  <span className="font-mono">{fmtTime(row.emergency_start)}</span>
+                                  <span style={{ margin: '0 4px', color: '#94A3B8' }}>→</span>
+                                  <span className="font-mono">{fmtTime(row.emergency_end)}</span>
+                                </div>
+                                <span style={{
+                                  fontSize: '0.75rem',
+                                  color: '#64748B',
+                                  fontWeight: 600
+                                }}>
+                                  {row.total_emergency_minutes || 0}m break
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="font-mono" style={{ color: '#94A3B8' }}>—</span>
+                            )}
+                          </td>
+                          <td className="font-mono">
+                            {fmtTime(row.clock_out)}
+                            {row.auto_cut ? (
+                              <span style={{
+                                display: 'block',
+                                fontSize: '0.7rem',
+                                color: '#DC2626',
+                                fontWeight: 700
+                              }}>
+                                (Auto Cut 9:45 PM)
+                              </span>
+                            ) : null}
+                          </td>
                           <td className="font-mono" style={{ fontWeight: 600 }}>
                             {fmtDuration(row.net_work_minutes || 0)}
                           </td>
@@ -1931,15 +2104,51 @@ export function App() {
                             <strong className="font-mono" style={{ color: '#94A3B8' }}>—</strong>
                           )}
                         </div>
+                        <div className="mobile-grid-item" style={{ gridColumn: (row.total_emergency_minutes || 0) > 0 || row.status === 'emergency' ? 'span 2' : 'span 1' }}>
+                          <span>Emergency Break</span>
+                          {row.status === 'emergency' ? (
+                            <strong className="font-mono" style={{ color: '#D97706', fontSize: '0.8rem' }}>
+                              Left {fmtTime(row.emergency_start || row.emergency_started)} (Out)
+                            </strong>
+                          ) : (row.total_emergency_minutes || 0) > 0 ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
+                              <span className="font-mono" style={{ fontSize: '0.8rem', color: '#334155' }}>
+                                {fmtTime(row.emergency_start)} – {fmtTime(row.emergency_end)}
+                              </span>
+                              <strong className="font-mono" style={{
+                                color: '#D97706',
+                                background: '#FFFBEB',
+                                border: '1px solid #FDE68A',
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                fontSize: '0.74rem'
+                              }}>
+                                {row.total_emergency_minutes}m
+                              </strong>
+                            </div>
+                          ) : (
+                            <strong className="font-mono" style={{ color: '#94A3B8' }}>—</strong>
+                          )}
+                        </div>
                         <div className="mobile-grid-item">
                           <span>Exit</span>
                           <strong className="font-mono">{fmtTime(row.clock_out)}</strong>
+                          {row.auto_cut ? (
+                            <span style={{ display: 'block', fontSize: '0.68rem', color: '#DC2626', fontWeight: 700 }}>
+                              Auto Cut 9:45 PM
+                            </span>
+                          ) : null}
                         </div>
                         <div className="mobile-grid-item">
                           <span>Net Time</span>
                           <strong className="font-mono">{fmtDuration(row.net_work_minutes || 0)}</strong>
                         </div>
                       </div>
+                      {row.note && (
+                        <div style={{ padding: '6px 12px 10px', fontSize: '0.75rem', color: '#64748B', borderTop: '1px solid #F1F5F9', fontStyle: 'italic' }}>
+                          Note: {row.note}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2629,6 +2838,8 @@ function StatusBadge({ status }) {
   if (s === 'in' || s === 'present') label = 'Active On Duty';
   else if (s === 'absent') label = 'Absent / Off';
   else if (s === 'lunch' || s === 'break') label = 'On Lunch';
+  else if (s === 'emergency') label = 'Emergency Exit';
+  else if (s === 'day_off') label = 'Day Off (Emergency Exit)';
   else if (s === 'out') label = 'Shift Completed';
   else if (s === 'device_approved') label = 'Approved';
   else if (s === 'device_pending') label = 'Pending';

@@ -701,6 +701,78 @@ button {
   color: #BE123C;
 }
 
+.btn-emergency {
+  height: 54px;
+  background: #FFFBEB;
+  color: #B45309;
+  border: 1.5px solid #FDE68A;
+  border-radius: 14px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+}
+
+.btn-emergency:hover {
+  background: #FEF3C7;
+  color: #92400E;
+}
+
+.btn-emergency-return {
+  height: 54px;
+  background: #ECFDF5;
+  color: #047857;
+  border: 1.5px solid #A7F3D0;
+  border-radius: 14px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+}
+
+.btn-emergency-return:hover {
+  background: #D1FAE5;
+  color: #065F46;
+}
+
+.status-badge.emergency {
+  background: #FFFBEB;
+  color: #D97706;
+  border: 1px solid #FDE68A;
+}
+
+.status-badge.emergency .pulse-dot {
+  background: #D97706;
+}
+
+.status-badge.day_off {
+  background: #FEF2F2;
+  color: #DC2626;
+  border: 1px solid #FECACA;
+}
+
+.status-badge.day_off .pulse-dot {
+  background: #DC2626;
+}
+
+.triple-action-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .triple-action-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .scanner-view-box {
   margin: 16px 0;
   border-radius: 16px;

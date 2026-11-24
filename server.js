@@ -38,6 +38,7 @@ import {
   clearScans,
   listScansExport,
   getTodayAttendance,
+  getOpenAttendances,
   createAttendance,
   updateAttendance,
   listAttendanceExport,
@@ -639,8 +640,101 @@ app.post('/api/owner/staff/:id/pin', ownerOnly, async (req, res) => {
   res.json({ ok: true, message: `PIN updated successfully for ${staff.name} (${staff.code}).` });
 });
 
+// Auto-Cut Worker: Closes all open shifts at Shop Closing Time (9:45 PM IST)
+async function autoCutShopClosing() {
+  try {
+    const d = new Date();
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Kolkata',
+      hour12: false,
+      hour: 'numeric',
+      minute: 'numeric'
+    }).formatToParts(d);
+    const hour = Number(parts.find(p => p.type === 'hour')?.value || 0);
+    const minute = Number(parts.find(p => p.type === 'minute')?.value || 0);
+    const istToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d);
+
+    const isPastClosing = hour > 21 || (hour === 21 && minute >= 45);
+
+    const openRows = await getOpenAttendances();
+    for (const row of openRows) {
+      const isPastDay = row.work_date < istToday;
+      const isTodayAndPastClosing = row.work_date === istToday && isPastClosing;
+
+      if (isPastDay || isTodayAndPastClosing) {
+        const closingIso = new Date(`${row.work_date}T21:45:00+05:30`).toISOString();
+
+        if (row.status === 'emergency') {
+          // Left on emergency exit and never came back -> Marked as Day Off / Incomplete
+          const cutTime = row.emergency_started || row.emergency_start || closingIso;
+          const net = Math.max(
+            0,
+            Math.round((new Date(cutTime).getTime() - new Date(row.clock_in).getTime()) / 60000) -
+              (row.total_break_minutes || 0) - (row.total_emergency_minutes || 0)
+          );
+
+          await updateAttendance(row.id, {
+            clock_out: cutTime,
+            emergency_started: null,
+            emergency_end: cutTime,
+            status: 'day_off',
+            auto_cut: 1,
+            note: 'Auto cut at 9:45 PM (Emergency Exit - Day Off)',
+            net_work_minutes: net
+          });
+
+          await logScan(row.staff_id, null, null, 'auto_cut', 'Auto cut at 9:45 PM: Left on Emergency Exit (Day Off)');
+        } else if (row.status === 'lunch') {
+          const cutTime = closingIso;
+          const net = Math.max(
+            0,
+            Math.round((new Date(cutTime).getTime() - new Date(row.clock_in).getTime()) / 60000) -
+              (row.total_break_minutes || 0) - (row.total_emergency_minutes || 0)
+          );
+
+          await updateAttendance(row.id, {
+            clock_out: cutTime,
+            break_started: null,
+            lunch_end: cutTime,
+            status: 'out',
+            auto_cut: 1,
+            note: 'Auto cut at 9:45 PM (Shop Closing)',
+            net_work_minutes: net
+          });
+
+          await logScan(row.staff_id, null, null, 'auto_cut', 'Auto cut at 9:45 PM: Shift closed');
+        } else {
+          // Active on duty
+          const cutTime = closingIso;
+          const net = Math.max(
+            0,
+            Math.round((new Date(cutTime).getTime() - new Date(row.clock_in).getTime()) / 60000) -
+              (row.total_break_minutes || 0) - (row.total_emergency_minutes || 0)
+          );
+
+          await updateAttendance(row.id, {
+            clock_out: cutTime,
+            status: 'out',
+            auto_cut: 1,
+            note: 'Auto cut at 9:45 PM (Shop Closing)',
+            net_work_minutes: net
+          });
+
+          await logScan(row.staff_id, null, null, 'auto_cut', 'Auto cut at 9:45 PM: Shift closed');
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error in autoCutShopClosing:', err);
+  }
+}
+
+// Background auto-cut runner every 60 seconds
+setInterval(autoCutShopClosing, 60 * 1000);
+
 // Admin attendance board with calendar date filter
 app.get('/api/owner/board', ownerOnly, async (req, res) => {
+  await autoCutShopClosing();
   const targetDate = String(req.query.date || today()).slice(0, 10);
   const rows = await getAttendanceBoard(targetDate);
   res.json(rows);
@@ -722,9 +816,14 @@ app.get('/api/owner/export.csv', ownerOnly, async (req, res) => {
     'lunch_start',
     'lunch_end',
     'total_break_minutes',
+    'emergency_start',
+    'emergency_end',
+    'total_emergency_minutes',
     'clock_out',
     'net_work_minutes',
-    'status'
+    'status',
+    'auto_cut',
+    'note'
   ];
 
   const esc = value =>
@@ -870,6 +969,9 @@ app.post('/api/attendance/scan', async (req, res) => {
     if (!row.clock_in || row.clock_out) {
       return await fail('rejected', 'You must be clocked in to use lunch.');
     }
+    if (row.status === 'emergency') {
+      return await fail('rejected', 'Please return from Emergency Exit before starting lunch.');
+    }
 
     if (row.status === 'lunch' && row.break_started) {
       const mins = Math.max(
@@ -898,17 +1000,78 @@ app.post('/api/attendance/scan', async (req, res) => {
       return await fail('rejected', 'Lunch action is not available in the current status.');
     }
 
+  } else if (action === 'emergency') {
+    if (!row.clock_in || row.clock_out) {
+      return await fail('rejected', 'You must be clocked in to record an emergency exit.');
+    }
+    if (row.status === 'lunch') {
+      return await fail('rejected', 'Please return from lunch before recording an emergency exit.');
+    }
+
+    if (row.status === 'emergency' && row.emergency_started) {
+      // Returning from emergency exit -> resume duty
+      const mins = Math.max(
+        0,
+        Math.round((Date.now() - new Date(row.emergency_started).getTime()) / 60000)
+      );
+
+      row = await updateAttendance(row.id, {
+        emergency_started: null,
+        emergency_start: row.emergency_start || row.emergency_started,
+        emergency_end: time,
+        total_emergency_minutes: (row.total_emergency_minutes || 0) + mins,
+        status: 'in'
+      });
+    } else if (row.status === 'in') {
+      // Stepping out on emergency exit
+      row = await updateAttendance(row.id, {
+        emergency_started: time,
+        emergency_start: time,
+        emergency_end: null,
+        status: 'emergency'
+      });
+    } else {
+      return await fail('rejected', 'Emergency action is not available in the current status.');
+    }
+
   } else if (action === 'out') {
-    if (!row.clock_in || row.clock_out || row.status === 'lunch') {
+    if (!row.clock_in || row.clock_out) {
+      return await fail('rejected', 'You must be clocked in before clocking out.');
+    }
+    if (row.status === 'lunch') {
       return await fail('rejected', 'Finish lunch and ensure you are clocked in before clocking out.');
     }
 
-    const net = Math.max(
-      0,
-      Math.round((Date.now() - new Date(row.clock_in).getTime()) / 60000) - (row.total_break_minutes || 0)
-    );
+    if (row.status === 'emergency') {
+      // Clocking out while in emergency exit -> Day Off / Early Exit
+      const cutTime = row.emergency_started || time;
+      const net = Math.max(
+        0,
+        Math.round((new Date(cutTime).getTime() - new Date(row.clock_in).getTime()) / 60000) -
+          (row.total_break_minutes || 0) - (row.total_emergency_minutes || 0)
+      );
 
-    row = await updateAttendance(row.id, { clock_out: time, status: 'out', net_work_minutes: net });
+      row = await updateAttendance(row.id, {
+        emergency_started: null,
+        emergency_end: cutTime,
+        clock_out: cutTime,
+        status: 'day_off',
+        note: 'Left on Emergency Exit (Day Off)',
+        net_work_minutes: net
+      });
+    } else {
+      const net = Math.max(
+        0,
+        Math.round((Date.now() - new Date(row.clock_in).getTime()) / 60000) -
+          (row.total_break_minutes || 0) - (row.total_emergency_minutes || 0)
+      );
+
+      row = await updateAttendance(row.id, {
+        clock_out: time,
+        status: 'out',
+        net_work_minutes: net
+      });
+    }
 
   } else {
     return await fail('rejected', 'Unknown attendance action.');
@@ -925,6 +1088,7 @@ app.post('/api/attendance/scan', async (req, res) => {
 
 // Staff dashboard
 app.get('/api/staff/me', staffOnly, async (req, res) => {
+  await autoCutShopClosing();
   const staff = await findStaffById(req.session.staffId);
   const attendance = await getTodayAttendance(req.session.staffId, today());
 

@@ -177,6 +177,24 @@ export async function initDb() {
   try {
     sqliteDb.exec('ALTER TABLE attendance ADD COLUMN lunch_end TEXT');
   } catch {}
+  try {
+    sqliteDb.exec('ALTER TABLE attendance ADD COLUMN emergency_started TEXT');
+  } catch {}
+  try {
+    sqliteDb.exec('ALTER TABLE attendance ADD COLUMN emergency_start TEXT');
+  } catch {}
+  try {
+    sqliteDb.exec('ALTER TABLE attendance ADD COLUMN emergency_end TEXT');
+  } catch {}
+  try {
+    sqliteDb.exec('ALTER TABLE attendance ADD COLUMN total_emergency_minutes INTEGER DEFAULT 0');
+  } catch {}
+  try {
+    sqliteDb.exec('ALTER TABLE attendance ADD COLUMN auto_cut INTEGER DEFAULT 0');
+  } catch {}
+  try {
+    sqliteDb.exec('ALTER TABLE attendance ADD COLUMN note TEXT');
+  } catch {}
   console.log('✓ Initialized local SQLite database.');
 }
 
@@ -449,17 +467,24 @@ export async function getAttendanceBoard(targetDate) {
         break_started: a.break_started || null,
         lunch_start: a.lunch_start || a.break_started || null,
         lunch_end: a.lunch_end || null,
+        emergency_started: a.emergency_started || null,
+        emergency_start: a.emergency_start || a.emergency_started || null,
+        emergency_end: a.emergency_end || null,
+        total_emergency_minutes: a.total_emergency_minutes || 0,
         clock_out: a.clock_out || null,
         total_break_minutes: a.total_break_minutes || 0,
-        net_work_minutes: a.net_work_minutes || null
+        net_work_minutes: a.net_work_minutes || null,
+        auto_cut: a.auto_cut || 0,
+        note: a.note || null
       };
     });
   }
 
   const rows = sqliteDb.prepare(`
     SELECT s.id, s.code, s.name, a.status, a.clock_in,
-    a.break_started, a.lunch_start, a.lunch_end, a.clock_out, a.total_break_minutes,
-    a.net_work_minutes
+    a.break_started, a.lunch_start, a.lunch_end,
+    a.emergency_started, a.emergency_start, a.emergency_end, a.total_emergency_minutes,
+    a.clock_out, a.total_break_minutes, a.net_work_minutes, a.auto_cut, a.note
     FROM staff s
     LEFT JOIN attendance a
     ON a.staff_id = s.id AND a.work_date = ?
@@ -472,8 +497,26 @@ export async function getAttendanceBoard(targetDate) {
     work_date: d,
     lunch_start: row.lunch_start || row.break_started || null,
     lunch_end: row.lunch_end || null,
+    emergency_start: row.emergency_start || row.emergency_started || null,
+    emergency_end: row.emergency_end || null,
+    total_emergency_minutes: row.total_emergency_minutes || 0,
+    auto_cut: row.auto_cut || 0,
+    note: row.note || null,
     status: row.clock_in ? (row.status || 'out') : 'absent'
   }));
+}
+
+export async function getOpenAttendances() {
+  if (usingMongo) {
+    return await mongoDb.collection('attendance').find({
+      clock_in: { $ne: null },
+      clock_out: null
+    }).toArray();
+  }
+  return sqliteDb.prepare(`
+    SELECT * FROM attendance
+    WHERE clock_in IS NOT NULL AND clock_out IS NULL
+  `).all();
 }
 
 // ----------------------------------------------------
@@ -505,6 +548,12 @@ export async function createAttendance({ staff_id, work_date, status = 'out' }) 
       break_started: null,
       lunch_start: null,
       lunch_end: null,
+      emergency_started: null,
+      emergency_start: null,
+      emergency_end: null,
+      total_emergency_minutes: 0,
+      auto_cut: 0,
+      note: null,
       total_break_minutes: 0,
       net_work_minutes: null
     };
