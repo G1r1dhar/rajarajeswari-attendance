@@ -773,6 +773,23 @@ export function App() {
             <p>Enter your assigned ID and PIN or scan your QR to access</p>
           </div>
 
+          <div className="login-role-selector">
+            <button
+              type="button"
+              className={`role-select-btn ${loginId === 'ADMIN' ? 'active' : ''}`}
+              onClick={() => { setLoginId('ADMIN'); setLoginPin('1234'); }}
+            >
+              <ShieldCheck size={14} /> Admin Portal
+            </button>
+            <button
+              type="button"
+              className={`role-select-btn ${loginId === 'RR001' ? 'active' : ''}`}
+              onClick={() => { setLoginId('RR001'); setLoginPin('1234'); }}
+            >
+              <User size={14} /> Staff Portal
+            </button>
+          </div>
+
           <form onSubmit={handleUnifiedLogin}>
             <div className="form-group">
               <label className="form-label">
@@ -885,21 +902,34 @@ export function App() {
             <Store size={22} />
           </div>
           <div>
-            <h1 className="topbar-title">Rajarajeswari</h1>
-            <p className="topbar-subtitle">Staff Attendance</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h1 className="topbar-title">Rajarajeswari</h1>
+              <span className="live-db-pill">
+                <span className="pulse-dot green" /> MongoDB Cloud
+              </span>
+            </div>
+            <p className="topbar-subtitle">Retail Workforce & Attendance Platform</p>
           </div>
         </div>
 
         <div className="topbar-user">
           {role === 'staff' ? (
             <div className="user-badge">
-              <span className="user-name">{me?.staff?.name || 'Staff'}</span>
-              <span className="staff-code-pill font-mono">{me?.staff?.code || 'RR001'}</span>
+              <div className="user-avatar-circle">
+                {(me?.staff?.name || 'S').slice(0, 1).toUpperCase()}
+              </div>
+              <div className="user-details">
+                <span className="user-name">{me?.staff?.name || 'Staff'}</span>
+                <span className="staff-code-pill font-mono">{me?.staff?.code || 'RR001'}</span>
+              </div>
             </div>
           ) : (
             <div className="user-badge">
-              <span className="user-name">Store Admin</span>
-              <span className="staff-code-pill font-mono">ADMIN</span>
+              <div className="user-avatar-circle admin">A</div>
+              <div className="user-details">
+                <span className="user-name">Store Admin</span>
+                <span className="staff-code-pill font-mono admin-tag">ADMIN</span>
+              </div>
             </div>
           )}
           <button className="btn-icon-logout" onClick={handleLogout} title="Log Out">
@@ -1161,35 +1191,54 @@ export function App() {
           <div className="kpi-grid">
             <div className="kpi-card">
               <div className="kpi-icon staff">
-                <Users size={24} />
+                <Users size={22} />
               </div>
-              <div>
+              <div className="kpi-info">
                 <span className="kpi-label">Total Staff</span>
                 <div className="kpi-value font-mono">{staff.length}</div>
+                <span className="kpi-subtext">Registered workforce</span>
               </div>
             </div>
 
             <div className="kpi-card">
               <div className="kpi-icon present">
-                <CheckCircle2 size={24} />
+                <CheckCircle2 size={22} />
               </div>
-              <div>
-                <span className="kpi-label">Present</span>
+              <div className="kpi-info">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span className="kpi-label">Present</span>
+                  <span className="pulse-dot green" />
+                </div>
                 <div className="kpi-value font-mono" style={{ color: '#059669' }}>
                   {presentCount}
                 </div>
+                <span className="kpi-subtext">On duty today</span>
               </div>
             </div>
 
             <div className="kpi-card">
-              <div className="kpi-icon break" style={{ background: absentCount > 0 ? '#FFF1F2' : '#FFFBEB', color: absentCount > 0 ? '#E11D48' : '#D97706' }}>
-                <XCircle size={24} />
+              <div className="kpi-icon break" style={{ background: '#FFFBEB', color: '#D97706' }}>
+                <Clock size={22} />
               </div>
-              <div>
-                <span className="kpi-label">Absent / Break</span>
-                <div className="kpi-value font-mono">
-                  {absentCount} Absent · {lunchCount} Break
+              <div className="kpi-info">
+                <span className="kpi-label">On Lunch</span>
+                <div className="kpi-value font-mono" style={{ color: '#D97706' }}>
+                  {lunchCount}
                 </div>
+                <span className="kpi-subtext">Taking break</span>
+              </div>
+            </div>
+
+            <div className="kpi-card">
+              <div className="kpi-icon absent" style={{ background: '#FFF1F2', color: '#E11D48' }}>
+                <XCircle size={22} />
+              </div>
+              <div className="kpi-info">
+                <span className="kpi-label">Absent / Off</span>
+                <div className="kpi-value font-mono" style={{ color: '#E11D48' }}>
+                  {absentCount}
+                </div>
+                <span className="kpi-subtext">Not checked in</span>
               </div>
             </div>
           </div>
@@ -1418,18 +1467,40 @@ export function App() {
                 <>
                   <div className="qr-code-frame">
                     <img src={qr.dataUrl} alt="Live rotating QR attendance code" />
+                    <div className="qr-scanner-line" />
                   </div>
 
                   {qr.passcode && (
                     <div className="qr-passcode-display">
-                      <span>Live 6-Character Passcode</span>
-                      <strong className="font-mono">{qr.passcode}</strong>
+                      <span className="passcode-label">LIVE SHOP PASSCODE (FOR MANUAL ENTRY)</span>
+                      <div className="passcode-boxes-row">
+                        {qr.passcode.split('').map((char, idx) => (
+                          <div key={idx} className="passcode-digit-box font-mono">
+                            {char}
+                          </div>
+                        ))}
+                      </div>
+                      <p className="passcode-hint">Staff can type these 6 letters into their phone if camera scanning is unavailable</p>
+                    </div>
+                  )}
+
+                  {qr.scanUrl && (
+                    <div className="qr-direct-link-strip">
+                      <Smartphone size={15} color="#059669" />
+                      <span className="direct-link-text font-mono">{qr.scanUrl}</span>
+                      <button
+                        type="button"
+                        className="btn-copy-link"
+                        onClick={() => copyToClipboard(qr.scanUrl, 'Direct scan link copied!')}
+                      >
+                        <Copy size={13} /> Copy Link
+                      </button>
                     </div>
                   )}
 
                   <div className="qr-countdown font-mono">
                     <Clock size={16} />
-                    <span>Rotates in {new Date(qr.expiresAt * 1000).toLocaleTimeString()}</span>
+                    <span>Auto-rotates in 45s (Anti-Replay Security) · {new Date(qr.expiresAt * 1000).toLocaleTimeString()}</span>
                   </div>
                 </>
               ) : (
