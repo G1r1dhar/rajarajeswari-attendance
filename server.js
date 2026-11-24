@@ -16,6 +16,8 @@ import {
   initDb,
   isMongo,
   createMongoSessionStore,
+  getSetting,
+  setSetting,
   getOwnerPin,
   setOwnerPin,
   findStaffByCode,
@@ -59,6 +61,39 @@ const getLocalIp = () => {
   return 'localhost';
 };
 
+const getBaseUrl = (req) => {
+  if (process.env.BASE_URL) {
+    return process.env.BASE_URL.replace(/\/+$/, '');
+  }
+
+  const forwardedHost = req.get('x-forwarded-host');
+  const host = forwardedHost || req.get('host') || '';
+  const forwardedProto = req.get('x-forwarded-proto');
+  const proto = forwardedProto || (req.secure ? 'https' : (host.includes('onrender.com') ? 'https' : 'http'));
+
+  if (host.includes('onrender.com')) {
+    return `https://${host}`;
+  }
+
+  // If request comes from browser origin/referer (e.g. Vite dev on :5173 or custom port)
+  const origin = req.get('origin') || req.get('referer');
+  if (origin) {
+    try {
+      const u = new URL(origin);
+      if (u.protocol && u.host) {
+        return `${u.protocol}//${u.host}`;
+      }
+    } catch (_) {}
+  }
+
+  if (host) {
+    return `${proto}://${host}`;
+  }
+
+  const localIp = getLocalIp();
+  return `http://${localIp}:5173`;
+};
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -71,23 +106,26 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 const QR_SECRET = process.env.QR_SIGNING_SECRET || '';
 const SESSION_SECRET = process.env.SESSION_SECRET || '';
 
-const SHOP_LAT =
-  process.env.SHOP_LAT === '' || process.env.SHOP_LAT == null
-    ? null
-    : Number(process.env.SHOP_LAT);
+async function getShopConfig() {
+  const dbLat = await getSetting('shop_lat');
+  const dbLng = await getSetting('shop_lng');
+  const dbGeofence = await getSetting('geofence_meters');
 
-const SHOP_LNG =
-  process.env.SHOP_LNG === '' || process.env.SHOP_LNG == null
-    ? null
-    : Number(process.env.SHOP_LNG);
+  const lat = dbLat !== null && dbLat !== undefined && dbLat !== ''
+    ? Number(dbLat)
+    : (process.env.SHOP_LAT ? Number(process.env.SHOP_LAT) : null);
 
-const GEOFENCE = Number(process.env.GEOFENCE_METERS || 50);
+  const lng = dbLng !== null && dbLng !== undefined && dbLng !== ''
+    ? Number(dbLng)
+    : (process.env.SHOP_LNG ? Number(process.env.SHOP_LNG) : null);
 
-const configured =
-  Number.isFinite(SHOP_LAT) &&
-  Number.isFinite(SHOP_LNG) &&
-  SHOP_LAT !== null &&
-  SHOP_LNG !== null;
+  const geofence = dbGeofence
+    ? Number(dbGeofence)
+    : Number(process.env.GEOFENCE_METERS || 100);
+
+  const isConfigured = Number.isFinite(lat) && Number.isFinite(lng) && lat !== null && lng !== null;
+  return { lat, lng, geofence, isConfigured };
+}
 
 if (SESSION_SECRET.length < 32 || QR_SECRET.length < 32) {
   console.error(
@@ -187,15 +225,18 @@ const limiter = rateLimit({
 app.use('/api', limiter);
 
 // Application status
-app.get('/api/status', (req, res) => {
+app.get('/api/status', async (req, res) => {
+  const shopConfig = await getShopConfig();
+  const baseUrl = getBaseUrl(req);
   res.json({
-    configured,
-    geofenceMeters: GEOFENCE,
+    configured: shopConfig.isConfigured,
+    geofenceMeters: shopConfig.geofence,
     role: req.session.role || null,
     shopName: 'Rajarajeswari',
-    shopLat: SHOP_LAT,
-    shopLng: SHOP_LNG,
+    shopLat: shopConfig.lat,
+    shopLng: shopConfig.lng,
     localIp: getLocalIp(),
+    baseUrl,
     storage: isMongo() ? 'mongodb' : 'sqlite'
   });
 });
@@ -430,7 +471,7 @@ app.post('/api/logout', (req, res) => {
 
 // Owner Shop QR Code generator
 app.get('/api/owner/qr', ownerOnly, async (req, res) => {
-  const expires = Math.floor(Date.now() / 1000) + 45;
+  const expires = Math.floor(Date.now() / 1000) + 90; // 90 seconds lifetime
   const id = crypto.randomBytes(16).toString('hex');
   const passcode = id.slice(0, 6).toUpperCase();
 
@@ -441,8 +482,8 @@ app.get('/api/owner/qr', ownerOnly, async (req, res) => {
   await saveChallenge({ id, expires_at: expires, passcode });
   await cleanupExpiredChallenges();
 
-  const localIp = getLocalIp();
-  const scanUrl = `http://${localIp}:5173/?scan=${encodeURIComponent(token)}`;
+  const baseUrl = getBaseUrl(req);
+  const scanUrl = `${baseUrl}/?scan=${encodeURIComponent(token)}`;
 
   const dataUrl = await QRCode.toDataURL(scanUrl, {
     width: 320,
@@ -450,7 +491,26 @@ app.get('/api/owner/qr', ownerOnly, async (req, res) => {
     errorCorrectionLevel: 'M'
   });
 
-  res.json({ token, scanUrl, dataUrl, expiresAt: expires, passcode });
+  res.json({ token, scanUrl, dataUrl, expiresAt: expires, passcode, baseUrl });
+});
+
+// Calibrate or update Shop GPS location & Geofence
+app.post('/api/owner/location', ownerOnly, async (req, res) => {
+  const lat = Number(req.body.latitude);
+  const lng = Number(req.body.longitude);
+  const geofence = req.body.geofence ? Number(req.body.geofence) : null;
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return res.status(400).json({ error: 'Valid latitude (-90 to 90) and longitude (-180 to 180) are required.' });
+  }
+
+  await setSetting('shop_lat', String(lat));
+  await setSetting('shop_lng', String(lng));
+  if (geofence && geofence > 0) {
+    await setSetting('geofence_meters', String(geofence));
+  }
+
+  res.json({ ok: true, latitude: lat, longitude: lng, geofence: geofence || 100 });
 });
 
 // Add staff
@@ -556,8 +616,8 @@ app.get('/api/owner/staff/:id/login-qr', ownerOnly, async (req, res) => {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const token = body + '.' + sign(body);
 
-  const localIp = getLocalIp();
-  const directLoginUrl = `http://${localIp}:5173/?auth=${token}`;
+  const baseUrl = getBaseUrl(req);
+  const directLoginUrl = `${baseUrl}/?auth=${token}`;
   const dataUrl = await QRCode.toDataURL(directLoginUrl, { width: 320, margin: 2 });
 
   res.json({
@@ -683,18 +743,20 @@ app.post('/api/attendance/scan', async (req, res) => {
     return await fail('unauthenticated_scan', 'Staff login required to record attendance.', 401);
   }
 
-  if (!configured) {
-    return await fail('blocked', 'Shop GPS coordinates are not configured by the owner.', 503);
+  const shopConfig = await getShopConfig();
+
+  if (!shopConfig.isConfigured) {
+    return await fail('blocked', 'Shop GPS coordinates are not configured. The owner can set them in Admin settings.', 503);
   }
 
   if (!hasCoords) {
     return await fail('failed_gps', 'Valid GPS coordinates are required to verify presence.');
   }
 
-  const meters = distanceMeters(SHOP_LAT, SHOP_LNG, latitude, longitude);
+  const meters = distanceMeters(shopConfig.lat, shopConfig.lng, latitude, longitude);
 
-  if (meters > GEOFENCE) {
-    return await fail('failed_geofence', `Outside the shop geofence (${Math.round(meters)} metres away).`, 403);
+  if (meters > shopConfig.geofence) {
+    return await fail('failed_geofence', `Outside shop geofence (${Math.round(meters)}m away, limit is ${shopConfig.geofence}m).`, 403);
   }
 
   let payloadId = null;

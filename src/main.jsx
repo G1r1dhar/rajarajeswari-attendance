@@ -37,7 +37,8 @@ import {
   Camera,
   Upload,
   X,
-  Filter
+  Filter,
+  Compass
 } from 'lucide-react';
 import './style.css';
 
@@ -154,9 +155,9 @@ export function App() {
   const phonePortalUrl =
     typeof window !== 'undefined'
       ? window.location.hostname === 'localhost'
-        ? `http://${networkIp}:${window.location.port || '5173'}`
+        ? (status?.baseUrl || `http://${networkIp}:${window.location.port || '5173'}`)
         : window.location.origin
-      : 'http://localhost:5173';
+      : (status?.baseUrl || 'http://localhost:5173');
 
   const flash = (msg, err = '') => {
     setMessage(msg);
@@ -242,6 +243,16 @@ export function App() {
         .finally(() => setBusy(false));
     }
   }, []);
+
+  // Auto-submit attendance if user logged in with a pending scan token
+  useEffect(() => {
+    if (role === 'staff' && pendingScanToken) {
+      const token = pendingScanToken;
+      setPendingScanToken(null);
+      flash('Shop attendance QR detected! Verifying check-in...');
+      submitAttendance(token, action || 'in');
+    }
+  }, [role, pendingScanToken]);
 
   // Fetch Admin Data
   const refreshAdmin = async (targetDate = selectedDate) => {
@@ -384,10 +395,29 @@ export function App() {
             loginScanner.current = null;
             setLoginScannerOpen(false);
 
+            // Check if user accidentally scanned the Attendance QR instead of Login QR
+            if (decoded.includes('?scan=')) {
+              let scanVal = decoded;
+              try {
+                scanVal = new URL(decoded).searchParams.get('scan') || decoded;
+              } catch {
+                const m = decoded.match(/[?&]scan=([^&#]+)/);
+                if (m) scanVal = decodeURIComponent(m[1]);
+              }
+              setPendingScanToken(scanVal);
+              flash('Shop Attendance QR scanned! Sign in with your ID and PIN below to record attendance.');
+              return;
+            }
+
             // Check if scanned decoded is URL with ?auth= or direct token
             let token = decoded;
             if (decoded.includes('?auth=')) {
-              token = new URL(decoded).searchParams.get('auth') || decoded;
+              try {
+                token = new URL(decoded).searchParams.get('auth') || decoded;
+              } catch {
+                const m = decoded.match(/[?&]auth=([^&#]+)/);
+                if (m) token = decodeURIComponent(m[1]);
+              }
             }
 
             setBusy(true);
@@ -599,6 +629,42 @@ export function App() {
     }
   };
 
+  const calibrateShopLocation = async () => {
+    if (!navigator.geolocation) {
+      flash('', 'Geolocation is not supported by your browser.');
+      return;
+    }
+    setBusy(true);
+    navigator.geolocation.getCurrentPosition(
+      async pos => {
+        try {
+          const lat = Number(pos.coords.latitude.toFixed(6));
+          const lng = Number(pos.coords.longitude.toFixed(6));
+          await api('/owner/location', {
+            method: 'POST',
+            body: JSON.stringify({
+              latitude: lat,
+              longitude: lng,
+              geofence: status?.geofenceMeters || 100
+            })
+          });
+          flash(`Shop GPS successfully calibrated to ${lat}, ${lng} (100m geofence radius)!`);
+          const st = await api('/status');
+          setStatus(st);
+        } catch (err) {
+          flash('', `Failed to save shop location: ${err.message}`);
+        } finally {
+          setBusy(false);
+        }
+      },
+      err => {
+        setBusy(false);
+        flash('', `Location error (${err.message}). Allow GPS permission to calibrate.`);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
   // ----------------------------------------------------
   // MULTI-METHOD ATTENDANCE SCANNER
   // ----------------------------------------------------
@@ -618,24 +684,27 @@ export function App() {
       try {
         const q = new Html5Qrcode('qr-reader');
         scanner.current = q;
-        const cameras = await Html5Qrcode.getCameras().catch(() => []);
-        const cameraIdOrConfig = cameras.length ? { facingMode: 'environment' } : true;
 
-        await q.start(
-          cameraIdOrConfig,
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          async decoded => {
+        const onScanSuccess = async decoded => {
+          try {
             await q.stop();
-            scanner.current = null;
-            setScanOpen(false);
-            await submitAttendance(decoded, targetAction);
-          },
-          () => {}
-        );
+          } catch {}
+          scanner.current = null;
+          setScanOpen(false);
+          await submitAttendance(decoded, targetAction);
+        };
+
+        const qrConfig = { fps: 10, qrbox: { width: 250, height: 250 } };
+        try {
+          await q.start({ facingMode: 'environment' }, qrConfig, onScanSuccess, () => {});
+        } catch (camErr) {
+          console.warn('Environment camera fallback to default:', camErr);
+          await q.start(true, qrConfig, onScanSuccess, () => {});
+        }
       } catch (e) {
         console.warn('Camera start error:', e);
         setScanMethod('passcode');
-        flash('', `Camera blocked (${e.message || e}). Use passcode or snap photo.`);
+        flash('', `Camera blocked (${e.message || e}). Use shop passcode or snap photo.`);
       }
     }, 200);
   };
@@ -1657,7 +1726,39 @@ export function App() {
 
                   <div className="qr-countdown font-mono">
                     <Clock size={16} />
-                    <span>Auto-rotates in 45s (Anti-Replay Security) · {new Date(qr.expiresAt * 1000).toLocaleTimeString()}</span>
+                    <span>Auto-rotates every 90s (Anti-Replay Security) · Valid until {new Date(qr.expiresAt * 1000).toLocaleTimeString()}</span>
+                  </div>
+
+                  <div className="shop-location-card" style={{
+                    marginTop: '20px',
+                    padding: '16px 20px',
+                    borderRadius: '12px',
+                    background: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    textAlign: 'left'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <MapPin size={16} color="#059669" />
+                          <span>Shop Geofence Verification Zone</span>
+                        </div>
+                        <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: '#64748B' }}>
+                          {status?.configured
+                            ? `Center: ${status.shopLat?.toFixed(4)}, ${status.shopLng?.toFixed(4)} · Maximum Radius: ${status.geofenceMeters || 100}m`
+                            : 'GPS coordinates not configured yet.'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ padding: '8px 14px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                        onClick={calibrateShopLocation}
+                        disabled={busy}
+                      >
+                        <Compass size={14} /> Calibrate Shop to My Location
+                      </button>
+                    </div>
                   </div>
                 </>
               ) : (
@@ -1667,7 +1768,7 @@ export function App() {
               )}
 
               <p className="login-footer" style={{ marginTop: '20px' }}>
-                <ShieldCheck size={16} /> HMAC-SHA256 Token Signature · 45-Second Rotation · Single-Use Anti-Replay
+                <ShieldCheck size={16} /> HMAC-SHA256 Token Signature · 90-Second Rotation · Single-Use Anti-Replay
               </p>
             </section>
           )}

@@ -225,25 +225,34 @@ async function migrateFromSqliteIfNeeded() {
 // ----------------------------------------------------
 // SETTINGS
 // ----------------------------------------------------
-export async function getOwnerPin() {
+export async function getSetting(key, defaultValue = null) {
   if (usingMongo) {
-    const row = await mongoDb.collection('settings').findOne({ key: 'owner_pin' });
-    return row ? String(row.value) : String(process.env.OWNER_PIN || '');
+    const row = await mongoDb.collection('settings').findOne({ key });
+    return row && row.value !== undefined ? row.value : defaultValue;
   }
-  const row = sqliteDb.prepare('SELECT value FROM settings WHERE key = ?').get('owner_pin');
-  return row ? String(row.value) : String(process.env.OWNER_PIN || '');
+  const row = sqliteDb.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  return row && row.value !== undefined ? row.value : defaultValue;
 }
 
-export async function setOwnerPin(newPin) {
+export async function setSetting(key, value) {
   if (usingMongo) {
     await mongoDb.collection('settings').updateOne(
-      { key: 'owner_pin' },
-      { $set: { value: String(newPin) } },
+      { key },
+      { $set: { value: String(value) } },
       { upsert: true }
     );
     return;
   }
-  sqliteDb.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('owner_pin', String(newPin));
+  sqliteDb.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, String(value));
+}
+
+export async function getOwnerPin() {
+  const pin = await getSetting('owner_pin');
+  return pin ? String(pin) : String(process.env.OWNER_PIN || '1234');
+}
+
+export async function setOwnerPin(newPin) {
+  await setSetting('owner_pin', String(newPin));
 }
 
 // ----------------------------------------------------
@@ -656,7 +665,7 @@ export async function findChallenge(idOrPasscode) {
   }
 
   if (raw.length === 6) {
-    return sqliteDb.prepare('SELECT id FROM qr_challenges WHERE id LIKE ? AND used = 0 AND expires_at >= ?').get(raw.toUpperCase() + '%', now);
+    return sqliteDb.prepare('SELECT * FROM qr_challenges WHERE (id LIKE ? OR id LIKE ?) AND used = 0 AND expires_at >= ?').get(raw.toLowerCase() + '%', raw.toUpperCase() + '%', now);
   }
   return sqliteDb.prepare('SELECT * FROM qr_challenges WHERE id = ?').get(raw.toLowerCase());
 }
