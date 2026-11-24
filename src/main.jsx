@@ -437,12 +437,28 @@ export function App() {
           }
         };
 
-        // Try back environment camera first, then user front camera (never pass boolean)
+        // Determine camera target (never pass boolean; query devices or pass valid { facingMode: 'environment' })
+        let cameraIdOrConfig = { facingMode: 'environment' };
         try {
-          await q.start({ facingMode: 'environment' }, qrConfig, onScanSuccess, () => {});
+          const cameras = await Html5Qrcode.getCameras();
+          if (cameras && cameras.length > 0) {
+            const backCam = cameras.find(c => /back|rear|environment|world/i.test(c.label));
+            cameraIdOrConfig = backCam ? backCam.id : cameras[0].id;
+          }
+        } catch {
+          cameraIdOrConfig = { facingMode: 'environment' };
+        }
+
+        try {
+          await q.start(cameraIdOrConfig, qrConfig, onScanSuccess, () => {});
         } catch (camErr) {
-          console.warn('Environment camera failed, trying user camera:', camErr);
-          await q.start({ facingMode: 'user' }, qrConfig, onScanSuccess, () => {});
+          console.warn('Camera ID start failed, trying facingMode environment:', camErr);
+          try {
+            await q.start({ facingMode: 'environment' }, qrConfig, onScanSuccess, () => {});
+          } catch (camErr2) {
+            console.warn('Environment facingMode failed, trying user camera:', camErr2);
+            await q.start({ facingMode: 'user' }, qrConfig, onScanSuccess, () => {});
+          }
         }
       } catch (err) {
         setLoginScannerOpen(false);
@@ -700,11 +716,28 @@ export function App() {
         };
 
         const qrConfig = { fps: 10, qrbox: { width: 250, height: 250 } };
+        // Determine camera target (never pass boolean; query devices or pass valid { facingMode: 'environment' })
+        let cameraIdOrConfig = { facingMode: 'environment' };
         try {
-          await q.start({ facingMode: 'environment' }, qrConfig, onScanSuccess, () => {});
+          const cameras = await Html5Qrcode.getCameras();
+          if (cameras && cameras.length > 0) {
+            const backCam = cameras.find(c => /back|rear|environment|world/i.test(c.label));
+            cameraIdOrConfig = backCam ? backCam.id : cameras[0].id;
+          }
+        } catch {
+          cameraIdOrConfig = { facingMode: 'environment' };
+        }
+
+        try {
+          await q.start(cameraIdOrConfig, qrConfig, onScanSuccess, () => {});
         } catch (camErr) {
-          console.warn('Environment camera fallback to user camera:', camErr);
-          await q.start({ facingMode: 'user' }, qrConfig, onScanSuccess, () => {});
+          console.warn('Initial camera start failed, trying environment facingMode:', camErr);
+          try {
+            await q.start({ facingMode: 'environment' }, qrConfig, onScanSuccess, () => {});
+          } catch (camErr2) {
+            console.warn('Environment facingMode failed, trying user camera:', camErr2);
+            await q.start({ facingMode: 'user' }, qrConfig, onScanSuccess, () => {});
+          }
         }
       } catch (e) {
         console.warn('Camera start error:', e);
@@ -924,11 +957,24 @@ export function App() {
     return (
       <main className="login-container">
         <div className="login-brand">
-          <div className="brand-badge">
-            <Store size={28} />
+          <div className="brand-logo-badge">
+            <svg width="42" height="42" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="goldSheen" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#FEF08A" />
+                  <stop offset="45%" stopColor="#FACC15" />
+                  <stop offset="100%" stopColor="#CA8A04" />
+                </linearGradient>
+              </defs>
+              <path d="M8 18L24 6L40 18L37 22H11L8 18Z" fill="url(#goldSheen)" />
+              <path d="M11 22H37V24C37 25.1046 36.1046 26 35 26C33.8954 26 33 25.1046 33 24C33 25.1046 32.1046 26 31 26C29.8954 26 29 25.1046 29 24C29 25.1046 28.1046 26 27 26C25.8954 26 25 25.1046 25 24C25 25.1046 24.1046 26 23 26C21.8954 26 21 25.1046 21 24C21 25.1046 20.1046 26 19 26C17.8954 26 17 25.1046 17 24C17 25.1046 16.1046 26 15 26C13.8954 26 13 25.1046 13 24V22H11Z" fill="url(#goldSheen)" opacity="0.85" />
+              <path d="M15 28H21C22.6569 28 24 29.3431 24 31C24 32.6569 22.6569 34 21 34H17.5V36.5H21.5L24 41H20.5L18.5 37H17.5V41H15V28ZM17.5 30.5V32H20.5C21.0523 32 21.5 31.5523 21.5 31C21.5 30.4477 21.0523 30.5 20.5 30.5H17.5Z" fill="url(#goldSheen)" />
+              <path d="M25 28H31C32.6569 28 34 29.3431 34 31C34 32.6569 32.6569 34 31 34H27.5V36.5H31.5L34 41H30.5L28.5 37H27.5V41H25V28ZM27.5 30.5V32H30.5C31.0523 32 31.5 31.5523 31.5 31C31.5 30.4477 31.0523 30.5 30.5 30.5H27.5Z" fill="url(#goldSheen)" />
+              <rect x="8" y="42" width="32" height="2" rx="1" fill="url(#goldSheen)" opacity="0.9" />
+            </svg>
           </div>
-          <h1>Rajarajeswari</h1>
-          <p>Staff Attendance & Workforce Portal</p>
+          <h1>Raja Rajeswari General Store</h1>
+          <p>Workforce Attendance Portal</p>
         </div>
 
         <section className="login-card">
@@ -936,28 +982,10 @@ export function App() {
             <h2>Sign In</h2>
           </div>
 
-          <div className="login-role-selector">
-            <button
-              type="button"
-              className={`role-select-btn ${(loginId === 'ADMIN' || loginId === 'OWNER') ? 'active' : ''}`}
-              onClick={() => { setLoginId('ADMIN'); setLoginPin('1234'); }}
-            >
-              <ShieldCheck size={14} /> Admin Portal
-            </button>
-            <button
-              type="button"
-              className={`role-select-btn ${(loginId === 'RR001' || loginId === 'RAJ') ? 'active' : ''}`}
-              onClick={() => { setLoginId('RR001'); setLoginPin('1234'); }}
-            >
-              <User size={14} /> Staff Portal
-            </button>
-          </div>
-
           <form onSubmit={handleUnifiedLogin}>
             <div className="form-group">
               <label className="form-label">
                 <span>Account ID</span>
-                <span className="section-label" style={{ fontSize: '0.68rem' }}>Staff ID or ADMIN</span>
               </label>
               <div className="input-wrapper">
                 <span className="input-icon-left">
@@ -978,7 +1006,6 @@ export function App() {
             <div className="form-group">
               <label className="form-label">
                 <span>Security PIN</span>
-                <span className="section-label" style={{ fontSize: '0.68rem' }}>Numeric</span>
               </label>
               <div className="input-wrapper">
                 <span className="input-icon-left">
@@ -1010,16 +1037,18 @@ export function App() {
             </button>
           </form>
 
-          {/* Quick Scan to Login Action */}
-          <button
-            type="button"
-            className="btn-qr-login-pill"
-            onClick={startLoginScanner}
-            disabled={busy}
-          >
-            <QrCode size={18} />
-            <span>Scan QR Code to Sign In</span>
-          </button>
+          {/* Compact Centered QR Button */}
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <button
+              type="button"
+              className="btn-qr-login-pill"
+              onClick={startLoginScanner}
+              disabled={busy}
+            >
+              <QrCode size={15} />
+              <span>Scan QR</span>
+            </button>
+          </div>
 
           {loginScannerOpen && (
             <div className="scanner-container-card" style={{ marginTop: '16px' }}>

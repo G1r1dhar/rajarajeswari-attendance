@@ -134,17 +134,26 @@ button {
   text-align: center;
 }
 
-.brand-badge {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  background: var(--emerald-900);
-  color: #FBBF24;
+.brand-badge,
+.brand-logo-badge {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #064E3B 0%, #022C22 100%);
+  border: 1.5px solid rgba(250, 204, 21, 0.45);
+  color: #FACC15;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 12px;
-  box-shadow: 0 8px 20px -4px rgba(6, 78, 59, 0.3);
+  margin-bottom: 14px;
+  box-shadow: 0 10px 25px -4px rgba(6, 78, 59, 0.4), 0 0 0 1px rgba(250, 204, 21, 0.2);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.brand-badge:hover,
+.brand-logo-badge:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px -4px rgba(6, 78, 59, 0.48), 0 0 0 1.5px rgba(250, 204, 21, 0.35);
 }
 
 .login-brand h1 {
@@ -2075,24 +2084,30 @@ button {
 }
 
 .btn-qr-login-pill {
-  width: 100%;
-  margin-top: 12px;
-  padding: 11px 16px;
-  background: #F8FAFC;
-  border: 1.5px dashed var(--emerald-600);
-  border-radius: var(--radius-button);
-  color: var(--emerald-900);
+  width: auto;
+  margin: 14px auto 0;
+  padding: 8px 18px;
+  background: #ECFDF5;
+  border: 1px solid #A7F3D0;
+  border-radius: 9999px;
+  color: #064E3B;
   font-weight: 700;
-  font-size: 0.88rem;
-  display: flex;
+  font-size: 0.84rem;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 7px;
+  cursor: pointer;
   transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(6, 78, 59, 0.05);
 }
 
 .btn-qr-login-pill:hover {
-  background: var(--emerald-50);
+  background: #D1FAE5;
+  border-color: #6EE7B7;
+  color: #022C22;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(6, 78, 59, 0.12);
 }
 
 @keyframes fadeIn {
