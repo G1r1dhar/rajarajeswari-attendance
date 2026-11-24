@@ -817,6 +817,27 @@ export function App() {
     return `${h}h ${m < 10 ? '0' : ''}${m}m`;
   };
 
+  // Lunch duration color-coded badge & meta helper:
+  // < 1 hour (< 60 mins): GREEN
+  // 1 hour to 1 hour 30 min (60 to 90 mins): YELLOW
+  // > 1 hour 30 min (> 90 mins): RED
+  const getLunchDurationMeta = (mins = 0) => {
+    const m = Number(mins) || 0;
+    const hours = Math.floor(m / 60);
+    const remMins = m % 60;
+    const timeText = hours > 0 ? (remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`) : `${remMins}m`;
+    if (m === 0) {
+      return { tier: 'none', color: '#64748B', bg: '#F1F5F9', border: '#E2E8F0', label: 'None', text: '0m' };
+    }
+    if (m < 60) {
+      return { tier: 'green', color: '#059669', bg: '#ECFDF5', border: '#A7F3D0', label: '< 1h (On Time)', text: timeText };
+    } else if (m <= 90) {
+      return { tier: 'yellow', color: '#D97706', bg: '#FFFBEB', border: '#FDE68A', label: '1h–1.5h (Moderate)', text: timeText };
+    } else {
+      return { tier: 'red', color: '#DC2626', bg: '#FEF2F2', border: '#FECACA', label: '> 1.5h (Overtime)', text: timeText };
+    }
+  };
+
   // Filtered Board Data with Date and Status
   const filteredBoard = useMemo(() => {
     let result = board;
@@ -1114,33 +1135,106 @@ export function App() {
 
             <div className="attendance-action-grid">
               {currentStatus === 'out' ? (
-                <button
-                  className="btn-action-primary"
-                  onClick={() => startScanner('in')}
-                  disabled={busy}
-                >
-                  <Store size={22} />
-                  <span>Check In for Shift</span>
-                </button>
+                me?.attendance?.clock_in && me?.attendance?.clock_out ? (
+                  <div style={{
+                    padding: '16px',
+                    borderRadius: '12px',
+                    background: '#F8FAFC',
+                    border: '1.5px solid #E2E8F0',
+                    textAlign: 'center',
+                    width: '100%'
+                  }}>
+                    <CheckCircle2 size={32} color="#059669" style={{ margin: '0 auto 8px' }} />
+                    <h4 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: 700, color: '#0F172A' }}>
+                      Shift Completed for Today
+                    </h4>
+                    <p style={{ margin: 0, fontSize: '0.84rem', color: '#64748B' }}>
+                      Entry: {fmtTime(me.attendance.clock_in)} • Exit: {fmtTime(me.attendance.clock_out)} ({fmtDuration(me.attendance.net_work_minutes || 0)} worked)
+                    </p>
+                  </div>
+                ) : (
+                  <button
+                    className="btn-action-primary"
+                    onClick={() => startScanner('in')}
+                    disabled={busy}
+                  >
+                    <Store size={22} />
+                    <span>Check In for Shift</span>
+                  </button>
+                )
               ) : currentStatus === 'in' ? (
-                <div className="split-action-row">
-                  <button
-                    className="btn-lunch"
-                    onClick={() => startScanner('lunch')}
-                    disabled={busy}
-                  >
-                    <Coffee size={18} />
-                    <span>Start Lunch</span>
-                  </button>
-                  <button
-                    className="btn-checkout"
-                    onClick={() => startScanner('out')}
-                    disabled={busy}
-                  >
-                    <LogOut size={18} />
-                    <span>Check Out</span>
-                  </button>
-                </div>
+                (!me?.attendance?.break_started && (me?.attendance?.total_break_minutes || 0) > 0) ? (
+                  <>
+                    {(() => {
+                      const meta = getLunchDurationMeta(me?.attendance?.total_break_minutes);
+                      return (
+                        <div style={{
+                          padding: '14px 16px',
+                          borderRadius: '12px',
+                          background: meta.bg,
+                          border: `1.5px solid ${meta.border}`,
+                          color: meta.color,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '12px',
+                          width: '100%'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <Coffee size={22} color={meta.color} />
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: '0.94rem' }}>
+                                Lunch Completed: {meta.text}
+                              </div>
+                              <div style={{ fontSize: '0.78rem', opacity: 0.9 }}>
+                                Status: {meta.label} • Resumed Shift
+                              </div>
+                            </div>
+                          </div>
+                          <span style={{
+                            padding: '4px 10px',
+                            borderRadius: '999px',
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            background: '#fff',
+                            border: `1px solid ${meta.border}`,
+                            color: meta.color
+                          }}>
+                            {meta.label}
+                          </span>
+                        </div>
+                      );
+                    })()}
+                    <button
+                      className="btn-checkout"
+                      style={{ width: '100%', height: '52px', fontSize: '1rem', fontWeight: 600 }}
+                      onClick={() => startScanner('out')}
+                      disabled={busy}
+                    >
+                      <LogOut size={20} />
+                      <span>Check Out</span>
+                    </button>
+                  </>
+                ) : (
+                  <div className="split-action-row">
+                    <button
+                      className="btn-lunch"
+                      onClick={() => startScanner('lunch')}
+                      disabled={busy}
+                    >
+                      <Coffee size={18} />
+                      <span>Start Lunch</span>
+                    </button>
+                    <button
+                      className="btn-checkout"
+                      onClick={() => startScanner('out')}
+                      disabled={busy}
+                    >
+                      <LogOut size={18} />
+                      <span>Check Out</span>
+                    </button>
+                  </div>
+                )
               ) : (
                 <div className="split-action-row">
                   <button
@@ -1163,16 +1257,18 @@ export function App() {
                 </div>
               )}
 
-              <button
-                type="button"
-                className="btn-secondary"
-                style={{ justifyContent: 'center', height: '48px', fontSize: '0.92rem' }}
-                onClick={() => startScanner(action)}
-                disabled={busy}
-              >
-                <ScanLine size={19} />
-                <span>Open Verification Scanner / Passcode</span>
-              </button>
+              {(!me?.attendance?.clock_in || !me?.attendance?.clock_out) && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ justifyContent: 'center', height: '48px', fontSize: '0.92rem' }}
+                  onClick={() => startScanner(action)}
+                  disabled={busy}
+                >
+                  <ScanLine size={19} />
+                  <span>Open Verification Scanner / Passcode</span>
+                </button>
+              )}
             </div>
 
             {/* Robust Multi-Method Scanner Box */}
@@ -1294,9 +1390,25 @@ export function App() {
                 <span className="timeline-dot" />
                 <span className="timeline-label">Lunch Duration</span>
                 <span className="timeline-time font-mono">
-                  {(me?.attendance?.total_break_minutes || 0) > 0
-                    ? `${me?.attendance?.total_break_minutes} mins`
-                    : '—'}
+                  {(me?.attendance?.total_break_minutes || 0) > 0 ? (
+                    (() => {
+                      const meta = getLunchDurationMeta(me?.attendance?.total_break_minutes);
+                      return (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          color: meta.color,
+                          fontWeight: 700
+                        }}>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color }} />
+                          {meta.text} ({meta.label})
+                        </span>
+                      );
+                    })()
+                  ) : (
+                    '—'
+                  )}
                 </span>
               </div>
 
@@ -1660,7 +1772,32 @@ export function App() {
                             <StatusBadge status={row.status} />
                           </td>
                           <td className="font-mono">{fmtTime(row.clock_in)}</td>
-                          <td className="font-mono">{row.total_break_minutes || 0} mins</td>
+                          <td>
+                            {(row.total_break_minutes || 0) > 0 ? (
+                              (() => {
+                                const meta = getLunchDurationMeta(row.total_break_minutes);
+                                return (
+                                  <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '4px 8px',
+                                    borderRadius: '6px',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 700,
+                                    background: meta.bg,
+                                    color: meta.color,
+                                    border: `1px solid ${meta.border}`
+                                  }}>
+                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.color }} />
+                                    {meta.text}
+                                  </span>
+                                );
+                              })()
+                            ) : (
+                              <span className="font-mono" style={{ color: '#94A3B8' }}>0 mins</span>
+                            )}
+                          </td>
                           <td className="font-mono">{fmtTime(row.clock_out)}</td>
                           <td className="font-mono" style={{ fontWeight: 600 }}>
                             {fmtDuration(row.net_work_minutes || 0)}
@@ -1701,7 +1838,18 @@ export function App() {
                         </div>
                         <div className="mobile-grid-item">
                           <span>Lunch</span>
-                          <strong className="font-mono">{row.total_break_minutes || 0}m</strong>
+                          {(row.total_break_minutes || 0) > 0 ? (
+                            (() => {
+                              const meta = getLunchDurationMeta(row.total_break_minutes);
+                              return (
+                                <strong className="font-mono" style={{ color: meta.color }}>
+                                  {meta.text}
+                                </strong>
+                              );
+                            })()
+                          ) : (
+                            <strong className="font-mono" style={{ color: '#94A3B8' }}>0m</strong>
+                          )}
                         </div>
                         <div className="mobile-grid-item">
                           <span>Exit</span>

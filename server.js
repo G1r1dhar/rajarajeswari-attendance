@@ -882,6 +882,9 @@ app.post('/api/attendance/scan', async (req, res) => {
         status: 'in'
       });
     } else if (row.status === 'in') {
+      if ((row.total_break_minutes || 0) > 0) {
+        return await fail('rejected', 'Lunch break has already been completed for today.');
+      }
       row = await updateAttendance(row.id, { break_started: time, status: 'lunch' });
     } else {
       return await fail('rejected', 'Lunch action is not available in the current status.');
