@@ -384,61 +384,66 @@ export function App() {
       try {
         const q = new Html5Qrcode('login-qr-reader');
         loginScanner.current = q;
-        const cameras = await Html5Qrcode.getCameras().catch(() => []);
-        const cameraIdOrConfig = cameras.length ? { facingMode: 'environment' } : true;
 
-        await q.start(
-          cameraIdOrConfig,
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          async decoded => {
+        const qrConfig = { fps: 10, qrbox: { width: 250, height: 250 } };
+        const onScanSuccess = async decoded => {
+          try {
             await q.stop();
-            loginScanner.current = null;
-            setLoginScannerOpen(false);
+          } catch {}
+          loginScanner.current = null;
+          setLoginScannerOpen(false);
 
-            // Check if user accidentally scanned the Attendance QR instead of Login QR
-            if (decoded.includes('?scan=')) {
-              let scanVal = decoded;
-              try {
-                scanVal = new URL(decoded).searchParams.get('scan') || decoded;
-              } catch {
-                const m = decoded.match(/[?&]scan=([^&#]+)/);
-                if (m) scanVal = decodeURIComponent(m[1]);
-              }
-              setPendingScanToken(scanVal);
-              flash('Shop Attendance QR scanned! Sign in with your ID and PIN below to record attendance.');
-              return;
-            }
-
-            // Check if scanned decoded is URL with ?auth= or direct token
-            let token = decoded;
-            if (decoded.includes('?auth=')) {
-              try {
-                token = new URL(decoded).searchParams.get('auth') || decoded;
-              } catch {
-                const m = decoded.match(/[?&]auth=([^&#]+)/);
-                if (m) token = decodeURIComponent(m[1]);
-              }
-            }
-
-            setBusy(true);
+          // Check if user accidentally scanned the Attendance QR instead of Login QR
+          if (decoded.includes('?scan=')) {
+            let scanVal = decoded;
             try {
-              const res = await api('/login', {
-                method: 'POST',
-                body: JSON.stringify({ authToken: token, deviceKey: getDeviceKey() })
-              });
-              if (res.role === 'staff') {
-                setRole('staff');
-                setMe({ staff: res.staff, attendance: null });
-                flash(`Signed in as ${res.staff.name}!`);
-              }
-            } catch (err) {
-              flash('', `QR Login failed: ${err.message}`);
-            } finally {
-              setBusy(false);
+              scanVal = new URL(decoded).searchParams.get('scan') || decoded;
+            } catch {
+              const m = decoded.match(/[?&]scan=([^&#]+)/);
+              if (m) scanVal = decodeURIComponent(m[1]);
             }
-          },
-          () => {}
-        );
+            setPendingScanToken(scanVal);
+            setLoginId(loginId || 'RR001');
+            flash('Shop Attendance QR scanned! Enter your PIN (1234) and click Sign In to clock in.');
+            return;
+          }
+
+          // Check if scanned decoded is URL with ?auth= or direct token
+          let token = decoded;
+          if (decoded.includes('?auth=')) {
+            try {
+              token = new URL(decoded).searchParams.get('auth') || decoded;
+            } catch {
+              const m = decoded.match(/[?&]auth=([^&#]+)/);
+              if (m) token = decodeURIComponent(m[1]);
+            }
+          }
+
+          setBusy(true);
+          try {
+            const res = await api('/login', {
+              method: 'POST',
+              body: JSON.stringify({ authToken: token, deviceKey: getDeviceKey() })
+            });
+            if (res.role === 'staff') {
+              setRole('staff');
+              setMe({ staff: res.staff, attendance: null });
+              flash(`Signed in as ${res.staff.name}!`);
+            }
+          } catch (err) {
+            flash('', `QR Login failed: ${err.message}`);
+          } finally {
+            setBusy(false);
+          }
+        };
+
+        // Try back environment camera first, then user front camera (never pass boolean)
+        try {
+          await q.start({ facingMode: 'environment' }, qrConfig, onScanSuccess, () => {});
+        } catch (camErr) {
+          console.warn('Environment camera failed, trying user camera:', camErr);
+          await q.start({ facingMode: 'user' }, qrConfig, onScanSuccess, () => {});
+        }
       } catch (err) {
         setLoginScannerOpen(false);
         flash('', `Camera error: ${err.message || err}. Please sign in using ID and PIN.`);
@@ -698,8 +703,8 @@ export function App() {
         try {
           await q.start({ facingMode: 'environment' }, qrConfig, onScanSuccess, () => {});
         } catch (camErr) {
-          console.warn('Environment camera fallback to default:', camErr);
-          await q.start(true, qrConfig, onScanSuccess, () => {});
+          console.warn('Environment camera fallback to user camera:', camErr);
+          await q.start({ facingMode: 'user' }, qrConfig, onScanSuccess, () => {});
         }
       } catch (e) {
         console.warn('Camera start error:', e);
