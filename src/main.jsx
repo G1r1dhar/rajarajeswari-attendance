@@ -275,7 +275,7 @@ export function App() {
   useEffect(() => {
     if (role === 'owner') {
       refreshAdmin(selectedDate);
-      const t = setInterval(() => refreshAdmin(selectedDate), 15000);
+      const t = setInterval(() => refreshAdmin(selectedDate), 5000);
       return () => clearInterval(t);
     }
   }, [role, selectedDate]);
@@ -820,12 +820,14 @@ export function App() {
   // Filtered Board Data with Date and Status
   const filteredBoard = useMemo(() => {
     let result = board;
-    if (statusFilter === 'present') {
-      result = result.filter(item => item.status === 'in' || (item.clock_in && item.status !== 'absent'));
-    } else if (statusFilter === 'absent') {
-      result = result.filter(item => item.status === 'absent' || (!item.clock_in && item.status === 'out'));
+    if (statusFilter === 'present' || statusFilter === 'in') {
+      result = result.filter(item => item.status === 'in');
     } else if (statusFilter === 'lunch') {
       result = result.filter(item => item.status === 'lunch');
+    } else if (statusFilter === 'completed' || statusFilter === 'out') {
+      result = result.filter(item => item.status === 'out' && item.clock_in);
+    } else if (statusFilter === 'absent') {
+      result = result.filter(item => item.status === 'absent' || !item.clock_in);
     }
 
     if (searchQuery) {
@@ -837,17 +839,21 @@ export function App() {
     return result;
   }, [board, statusFilter, searchQuery]);
 
-  // Counts for KPIs for selected date
-  const presentCount = useMemo(
-    () => board.filter(b => b.status === 'in' || (b.clock_in && b.status !== 'absent')).length,
-    [board]
-  );
-  const absentCount = useMemo(
-    () => board.filter(b => b.status === 'absent' || (!b.clock_in && b.status === 'out')).length,
+  // Counts for Dynamic Real-time KPIs for selected date
+  const onDutyCount = useMemo(
+    () => board.filter(b => b.status === 'in').length,
     [board]
   );
   const lunchCount = useMemo(
     () => board.filter(b => b.status === 'lunch').length,
+    [board]
+  );
+  const completedCount = useMemo(
+    () => board.filter(b => b.status === 'out' && b.clock_in).length,
+    [board]
+  );
+  const absentCount = useMemo(
+    () => board.filter(b => b.status === 'absent' || !b.clock_in).length,
     [board]
   );
 
@@ -1437,19 +1443,19 @@ export function App() {
               </div>
               <div className="kpi-info">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span className="kpi-label">Present</span>
+                  <span className="kpi-label">Active On Duty</span>
                   <span className="pulse-dot green" />
                 </div>
                 <div className="kpi-value font-mono" style={{ color: '#059669' }}>
-                  {presentCount}
+                  {onDutyCount}
                 </div>
-                <span className="kpi-subtext">On duty today</span>
+                <span className="kpi-subtext">Working right now</span>
               </div>
             </div>
 
             <div className="kpi-card">
               <div className="kpi-icon break" style={{ background: '#FFFBEB', color: '#D97706' }}>
-                <Clock size={22} />
+                <Coffee size={22} />
               </div>
               <div className="kpi-info">
                 <span className="kpi-label">On Lunch</span>
@@ -1457,6 +1463,19 @@ export function App() {
                   {lunchCount}
                 </div>
                 <span className="kpi-subtext">Taking break</span>
+              </div>
+            </div>
+
+            <div className="kpi-card">
+              <div className="kpi-icon shift-out" style={{ background: '#EFF6FF', color: '#2563EB' }}>
+                <LogOut size={22} />
+              </div>
+              <div className="kpi-info">
+                <span className="kpi-label">Shift Done</span>
+                <div className="kpi-value font-mono" style={{ color: '#2563EB' }}>
+                  {completedCount}
+                </div>
+                <span className="kpi-subtext">Duty completed</span>
               </div>
             </div>
 
@@ -1529,7 +1548,7 @@ export function App() {
                   </button>
                 </div>
 
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <button
                     type="button"
                     className={`date-pill-btn ${statusFilter === 'all' ? 'active' : ''}`}
@@ -1543,7 +1562,23 @@ export function App() {
                     style={statusFilter === 'present' ? { background: '#059669', borderColor: '#059669', color: '#fff' } : {}}
                     onClick={() => setStatusFilter('present')}
                   >
-                    Present ({presentCount})
+                    On Duty ({onDutyCount})
+                  </button>
+                  <button
+                    type="button"
+                    className={`date-pill-btn ${statusFilter === 'lunch' ? 'active' : ''}`}
+                    style={statusFilter === 'lunch' ? { background: '#D97706', borderColor: '#D97706', color: '#fff' } : {}}
+                    onClick={() => setStatusFilter('lunch')}
+                  >
+                    Lunch ({lunchCount})
+                  </button>
+                  <button
+                    type="button"
+                    className={`date-pill-btn ${statusFilter === 'completed' ? 'active' : ''}`}
+                    style={statusFilter === 'completed' ? { background: '#2563EB', borderColor: '#2563EB', color: '#fff' } : {}}
+                    onClick={() => setStatusFilter('completed')}
+                  >
+                    Done ({completedCount})
                   </button>
                   <button
                     type="button"
@@ -2363,10 +2398,10 @@ function StatusBadge({ status }) {
   const s = String(status || 'out').toLowerCase();
   let label = s.replaceAll('_', ' ');
 
-  if (s === 'in' || s === 'present') label = 'Present';
-  else if (s === 'absent') label = 'Absent';
+  if (s === 'in' || s === 'present') label = 'Active On Duty';
+  else if (s === 'absent') label = 'Absent / Off';
   else if (s === 'lunch' || s === 'break') label = 'On Lunch';
-  else if (s === 'out') label = 'Checked Out';
+  else if (s === 'out') label = 'Shift Completed';
   else if (s === 'device_approved') label = 'Approved';
   else if (s === 'device_pending') label = 'Pending';
   else if (s === 'failed_geofence') label = 'Out of Range';

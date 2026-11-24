@@ -869,10 +869,10 @@ button {
   margin-top: 3px;
 }
 
-/* 4-Column KPI Grid */
+/* Dynamic Real-time KPI Grid */
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -1197,7 +1197,15 @@ button {
   border: 1px solid var(--badge-lunch-border);
 }
 
-.status-badge.out,
+.status-badge.out {
+  background: #EFF6FF;
+  color: #1D4ED8;
+  border: 1px solid #BFDBFE;
+}
+.status-badge.out .pulse-dot {
+  background: #2563EB;
+}
+
 .status-badge.absent,
 .status-badge.revoked,
 .status-badge.failed,
