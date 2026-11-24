@@ -957,21 +957,8 @@ export function App() {
     return (
       <main className="login-container">
         <div className="login-brand">
-          <div className="brand-logo-badge">
-            <svg width="42" height="42" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="goldSheen" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#FEF08A" />
-                  <stop offset="45%" stopColor="#FACC15" />
-                  <stop offset="100%" stopColor="#CA8A04" />
-                </linearGradient>
-              </defs>
-              <path d="M8 18L24 6L40 18L37 22H11L8 18Z" fill="url(#goldSheen)" />
-              <path d="M11 22H37V24C37 25.1046 36.1046 26 35 26C33.8954 26 33 25.1046 33 24C33 25.1046 32.1046 26 31 26C29.8954 26 29 25.1046 29 24C29 25.1046 28.1046 26 27 26C25.8954 26 25 25.1046 25 24C25 25.1046 24.1046 26 23 26C21.8954 26 21 25.1046 21 24C21 25.1046 20.1046 26 19 26C17.8954 26 17 25.1046 17 24C17 25.1046 16.1046 26 15 26C13.8954 26 13 25.1046 13 24V22H11Z" fill="url(#goldSheen)" opacity="0.85" />
-              <path d="M15 28H21C22.6569 28 24 29.3431 24 31C24 32.6569 22.6569 34 21 34H17.5V36.5H21.5L24 41H20.5L18.5 37H17.5V41H15V28ZM17.5 30.5V32H20.5C21.0523 32 21.5 31.5523 21.5 31C21.5 30.4477 21.0523 30.5 20.5 30.5H17.5Z" fill="url(#goldSheen)" />
-              <path d="M25 28H31C32.6569 28 34 29.3431 34 31C34 32.6569 32.6569 34 31 34H27.5V36.5H31.5L34 41H30.5L28.5 37H27.5V41H25V28ZM27.5 30.5V32H30.5C31.0523 32 31.5 31.5523 31.5 31C31.5 30.4477 31.0523 30.5 30.5 30.5H27.5Z" fill="url(#goldSheen)" />
-              <rect x="8" y="42" width="32" height="2" rx="1" fill="url(#goldSheen)" opacity="0.9" />
-            </svg>
+          <div className="brand-logo-badge" title="Raja Rajeswari General Store">
+            <span className="brand-monogram">RRGS</span>
           </div>
           <h1>Raja Rajeswari General Store</h1>
           <p>Workforce Attendance Portal</p>
@@ -994,9 +981,9 @@ export function App() {
                 <input
                   value={loginId}
                   onChange={e => setLoginId(e.target.value.toUpperCase())}
-                  placeholder="e.g. RR001 or ADMIN"
+                  placeholder="Enter your Account ID"
                   className="form-input font-mono"
-                  style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}
+                  style={{ textTransform: loginId ? 'uppercase' : 'none', letterSpacing: loginId ? '0.04em' : 'normal' }}
                   required
                   autoFocus
                 />

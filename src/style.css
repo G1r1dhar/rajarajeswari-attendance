@@ -156,6 +156,23 @@ button {
   box-shadow: 0 12px 28px -4px rgba(6, 78, 59, 0.48), 0 0 0 1.5px rgba(250, 204, 21, 0.35);
 }
 
+.brand-monogram {
+  font-family: 'JetBrains Mono', 'Plus Jakarta Sans', monospace, sans-serif;
+  font-size: 1.3rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  background: linear-gradient(135deg, #FEF08A 0%, #FACC15 50%, #EAB308 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  display: inline-block;
+  line-height: 1;
+}
+
+.form-input::placeholder {
+  text-transform: none !important;
+  letter-spacing: normal !important;
+}
+
 .login-brand h1 {
   font-size: 1.5rem;
   font-weight: 800;
