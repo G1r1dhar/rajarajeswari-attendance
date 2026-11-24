@@ -142,6 +142,8 @@ export async function initDb() {
     clock_out TEXT,
     status TEXT NOT NULL DEFAULT 'out',
     break_started TEXT,
+    lunch_start TEXT,
+    lunch_end TEXT,
     total_break_minutes INTEGER NOT NULL DEFAULT 0,
     net_work_minutes INTEGER
   );
@@ -169,6 +171,12 @@ export async function initDb() {
   );
   `;
   sqliteDb.exec(schema);
+  try {
+    sqliteDb.exec('ALTER TABLE attendance ADD COLUMN lunch_start TEXT');
+  } catch {}
+  try {
+    sqliteDb.exec('ALTER TABLE attendance ADD COLUMN lunch_end TEXT');
+  } catch {}
   console.log('✓ Initialized local SQLite database.');
 }
 
@@ -439,6 +447,8 @@ export async function getAttendanceBoard(targetDate) {
         status: a.clock_in ? (a.status || 'out') : 'absent',
         clock_in: a.clock_in || null,
         break_started: a.break_started || null,
+        lunch_start: a.lunch_start || a.break_started || null,
+        lunch_end: a.lunch_end || null,
         clock_out: a.clock_out || null,
         total_break_minutes: a.total_break_minutes || 0,
         net_work_minutes: a.net_work_minutes || null
@@ -448,7 +458,7 @@ export async function getAttendanceBoard(targetDate) {
 
   const rows = sqliteDb.prepare(`
     SELECT s.id, s.code, s.name, a.status, a.clock_in,
-    a.break_started, a.clock_out, a.total_break_minutes,
+    a.break_started, a.lunch_start, a.lunch_end, a.clock_out, a.total_break_minutes,
     a.net_work_minutes
     FROM staff s
     LEFT JOIN attendance a
@@ -460,6 +470,8 @@ export async function getAttendanceBoard(targetDate) {
   return rows.map(row => ({
     ...row,
     work_date: d,
+    lunch_start: row.lunch_start || row.break_started || null,
+    lunch_end: row.lunch_end || null,
     status: row.clock_in ? (row.status || 'out') : 'absent'
   }));
 }
@@ -491,6 +503,8 @@ export async function createAttendance({ staff_id, work_date, status = 'out' }) 
       clock_out: null,
       status,
       break_started: null,
+      lunch_start: null,
+      lunch_end: null,
       total_break_minutes: 0,
       net_work_minutes: null
     };

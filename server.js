@@ -719,7 +719,8 @@ app.get('/api/owner/export.csv', ownerOnly, async (req, res) => {
     'name',
     'work_date',
     'clock_in',
-    'break_started',
+    'lunch_start',
+    'lunch_end',
     'total_break_minutes',
     'clock_out',
     'net_work_minutes',
@@ -878,6 +879,8 @@ app.post('/api/attendance/scan', async (req, res) => {
 
       row = await updateAttendance(row.id, {
         break_started: null,
+        lunch_start: row.lunch_start || row.break_started,
+        lunch_end: time,
         total_break_minutes: (row.total_break_minutes || 0) + mins,
         status: 'in'
       });
@@ -885,7 +888,12 @@ app.post('/api/attendance/scan', async (req, res) => {
       if ((row.total_break_minutes || 0) > 0) {
         return await fail('rejected', 'Lunch break has already been completed for today.');
       }
-      row = await updateAttendance(row.id, { break_started: time, status: 'lunch' });
+      row = await updateAttendance(row.id, {
+        break_started: time,
+        lunch_start: time,
+        lunch_end: null,
+        status: 'lunch'
+      });
     } else {
       return await fail('rejected', 'Lunch action is not available in the current status.');
     }

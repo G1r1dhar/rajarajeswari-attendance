@@ -1175,33 +1175,65 @@ export function App() {
                           border: `1.5px solid ${meta.border}`,
                           color: meta.color,
                           display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: '12px',
+                          flexDirection: 'column',
+                          gap: '10px',
                           width: '100%'
                         }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <Coffee size={22} color={meta.color} />
-                            <div>
-                              <div style={{ fontWeight: 700, fontSize: '0.94rem' }}>
-                                Lunch Completed: {meta.text}
-                              </div>
-                              <div style={{ fontSize: '0.78rem', opacity: 0.9 }}>
-                                Status: {meta.label} • Resumed Shift
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <Coffee size={22} color={meta.color} />
+                              <div>
+                                <div style={{ fontWeight: 700, fontSize: '0.94rem' }}>
+                                  Lunch Break Completed
+                                </div>
+                                <div style={{ fontSize: '0.78rem', opacity: 0.9 }}>
+                                  Tier: {meta.label} • Resumed Shift
+                                </div>
                               </div>
                             </div>
+                            <span style={{
+                              padding: '4px 10px',
+                              borderRadius: '999px',
+                              fontSize: '0.78rem',
+                              fontWeight: 800,
+                              background: '#fff',
+                              border: `1px solid ${meta.border}`,
+                              color: meta.color
+                            }}>
+                              {meta.text}
+                            </span>
                           </div>
-                          <span style={{
-                            padding: '4px 10px',
-                            borderRadius: '999px',
-                            fontSize: '0.75rem',
-                            fontWeight: 700,
-                            background: '#fff',
-                            border: `1px solid ${meta.border}`,
-                            color: meta.color
+
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            background: '#FFFFFF',
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            fontSize: '0.82rem',
+                            border: `1px solid ${meta.border}`
                           }}>
-                            {meta.label}
-                          </span>
+                            <div>
+                              <span style={{ color: '#64748B', fontSize: '0.68rem', fontWeight: 600, display: 'block', textTransform: 'uppercase' }}>Lunch Start</span>
+                              <strong className="font-mono" style={{ color: '#0F172A', fontSize: '0.85rem' }}>
+                                {fmtTime(me?.attendance?.lunch_start || me?.attendance?.break_started)}
+                              </strong>
+                            </div>
+                            <span style={{ color: '#94A3B8', fontWeight: 700 }}>→</span>
+                            <div>
+                              <span style={{ color: '#64748B', fontSize: '0.68rem', fontWeight: 600, display: 'block', textTransform: 'uppercase' }}>Lunch End</span>
+                              <strong className="font-mono" style={{ color: '#0F172A', fontSize: '0.85rem' }}>
+                                {fmtTime(me?.attendance?.lunch_end)}
+                              </strong>
+                            </div>
+                            <div>
+                              <span style={{ color: '#64748B', fontSize: '0.68rem', fontWeight: 600, display: 'block', textTransform: 'uppercase' }}>Duration</span>
+                              <strong className="font-mono" style={{ color: meta.color, fontSize: '0.85rem' }}>
+                                {meta.text}
+                              </strong>
+                            </div>
+                          </div>
                         </div>
                       );
                     })()}
@@ -1380,10 +1412,16 @@ export function App() {
                 <span className="timeline-time font-mono">{fmtTime(me?.attendance?.clock_in)}</span>
               </div>
 
-              <div className={`timeline-item ${me?.attendance?.break_started ? 'active' : ''}`}>
+              <div className={`timeline-item ${me?.attendance?.lunch_start || me?.attendance?.break_started ? 'active' : ''}`}>
                 <span className="timeline-dot" />
                 <span className="timeline-label">Lunch Started</span>
-                <span className="timeline-time font-mono">{fmtTime(me?.attendance?.break_started)}</span>
+                <span className="timeline-time font-mono">{fmtTime(me?.attendance?.lunch_start || me?.attendance?.break_started)}</span>
+              </div>
+
+              <div className={`timeline-item ${me?.attendance?.lunch_end ? 'active' : ''}`}>
+                <span className="timeline-dot" />
+                <span className="timeline-label">Lunch Ended</span>
+                <span className="timeline-time font-mono">{fmtTime(me?.attendance?.lunch_end)}</span>
               </div>
 
               <div className={`timeline-item ${(me?.attendance?.total_break_minutes || 0) > 0 ? 'active' : ''}`}>
@@ -1749,7 +1787,7 @@ export function App() {
                         <th>Staff ID</th>
                         <th>Attendance Status</th>
                         <th>Entry Time</th>
-                        <th>Lunch Duration</th>
+                        <th>Lunch Break (Start – End / Duration)</th>
                         <th>Exit Time</th>
                         <th>Total Hours</th>
                       </tr>
@@ -1773,29 +1811,55 @@ export function App() {
                           </td>
                           <td className="font-mono">{fmtTime(row.clock_in)}</td>
                           <td>
-                            {(row.total_break_minutes || 0) > 0 ? (
+                            {row.status === 'lunch' ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <span style={{ fontSize: '0.78rem', color: '#D97706', fontWeight: 600 }}>
+                                  Started: {fmtTime(row.lunch_start || row.break_started)}
+                                </span>
+                                <span style={{
+                                  padding: '2px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
+                                  background: '#FFFBEB',
+                                  color: '#D97706',
+                                  border: '1px solid #FDE68A',
+                                  width: 'fit-content'
+                                }}>
+                                  On Lunch Now
+                                </span>
+                              </div>
+                            ) : (row.total_break_minutes || 0) > 0 ? (
                               (() => {
                                 const meta = getLunchDurationMeta(row.total_break_minutes);
                                 return (
-                                  <span style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    padding: '4px 8px',
-                                    borderRadius: '6px',
-                                    fontSize: '0.8rem',
-                                    fontWeight: 700,
-                                    background: meta.bg,
-                                    color: meta.color,
-                                    border: `1px solid ${meta.border}`
-                                  }}>
-                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.color }} />
-                                    {meta.text}
-                                  </span>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                    <div style={{ fontSize: '0.78rem', color: '#334155', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                                      <span className="font-mono">{fmtTime(row.lunch_start)}</span>
+                                      <span style={{ margin: '0 4px', color: '#94A3B8' }}>→</span>
+                                      <span className="font-mono">{fmtTime(row.lunch_end)}</span>
+                                    </div>
+                                    <span style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '5px',
+                                      padding: '2px 8px',
+                                      borderRadius: '6px',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 700,
+                                      background: meta.bg,
+                                      color: meta.color,
+                                      border: `1px solid ${meta.border}`,
+                                      width: 'fit-content'
+                                    }}>
+                                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.color }} />
+                                      {meta.text} ({meta.label})
+                                    </span>
+                                  </div>
                                 );
                               })()
                             ) : (
-                              <span className="font-mono" style={{ color: '#94A3B8' }}>0 mins</span>
+                              <span className="font-mono" style={{ color: '#94A3B8' }}>—</span>
                             )}
                           </td>
                           <td className="font-mono">{fmtTime(row.clock_out)}</td>
@@ -1836,19 +1900,35 @@ export function App() {
                           <span>Entry</span>
                           <strong className="font-mono">{fmtTime(row.clock_in)}</strong>
                         </div>
-                        <div className="mobile-grid-item">
-                          <span>Lunch</span>
-                          {(row.total_break_minutes || 0) > 0 ? (
+                        <div className="mobile-grid-item" style={{ gridColumn: (row.total_break_minutes || 0) > 0 || row.status === 'lunch' ? 'span 2' : 'span 1' }}>
+                          <span>Lunch Break</span>
+                          {row.status === 'lunch' ? (
+                            <strong className="font-mono" style={{ color: '#D97706', fontSize: '0.8rem' }}>
+                              Started {fmtTime(row.lunch_start || row.break_started)} (Active)
+                            </strong>
+                          ) : (row.total_break_minutes || 0) > 0 ? (
                             (() => {
                               const meta = getLunchDurationMeta(row.total_break_minutes);
                               return (
-                                <strong className="font-mono" style={{ color: meta.color }}>
-                                  {meta.text}
-                                </strong>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
+                                  <span className="font-mono" style={{ fontSize: '0.8rem', color: '#334155' }}>
+                                    {fmtTime(row.lunch_start)} – {fmtTime(row.lunch_end)}
+                                  </span>
+                                  <strong className="font-mono" style={{
+                                    color: meta.color,
+                                    background: meta.bg,
+                                    border: `1px solid ${meta.border}`,
+                                    padding: '1px 6px',
+                                    borderRadius: '4px',
+                                    fontSize: '0.74rem'
+                                  }}>
+                                    {meta.text}
+                                  </strong>
+                                </div>
                               );
                             })()
                           ) : (
-                            <strong className="font-mono" style={{ color: '#94A3B8' }}>0m</strong>
+                            <strong className="font-mono" style={{ color: '#94A3B8' }}>—</strong>
                           )}
                         </div>
                         <div className="mobile-grid-item">
