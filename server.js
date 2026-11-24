@@ -114,17 +114,22 @@ async function getShopConfig() {
   const dbLng = await getSetting('shop_lng');
   const dbGeofence = await getSetting('geofence_meters');
 
-  const lat = dbLat !== null && dbLat !== undefined && dbLat !== ''
-    ? Number(dbLat)
-    : (process.env.SHOP_LAT ? Number(process.env.SHOP_LAT) : null);
+  // Prioritize environment variables configured in Render dashboard
+  const envLat = process.env.SHOP_LAT ? Number(process.env.SHOP_LAT) : null;
+  const envLng = process.env.SHOP_LNG ? Number(process.env.SHOP_LNG) : null;
+  const envGeofence = process.env.GEOFENCE_METERS ? Number(process.env.GEOFENCE_METERS) : null;
 
-  const lng = dbLng !== null && dbLng !== undefined && dbLng !== ''
-    ? Number(dbLng)
-    : (process.env.SHOP_LNG ? Number(process.env.SHOP_LNG) : null);
+  const lat = envLat !== null && Number.isFinite(envLat)
+    ? envLat
+    : (dbLat !== null && dbLat !== undefined && dbLat !== '' ? Number(dbLat) : null);
 
-  const geofence = dbGeofence
-    ? Number(dbGeofence)
-    : Number(process.env.GEOFENCE_METERS || 100);
+  const lng = envLng !== null && Number.isFinite(envLng)
+    ? envLng
+    : (dbLng !== null && dbLng !== undefined && dbLng !== '' ? Number(dbLng) : null);
+
+  const geofence = envGeofence && Number.isFinite(envGeofence)
+    ? envGeofence
+    : (dbGeofence ? Number(dbGeofence) : 150);
 
   const isConfigured = Number.isFinite(lat) && Number.isFinite(lng) && lat !== null && lng !== null;
   return { lat, lng, geofence, isConfigured };
