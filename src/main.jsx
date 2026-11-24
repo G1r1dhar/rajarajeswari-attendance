@@ -87,6 +87,7 @@ export function App() {
   const [loginPin, setLoginPin] = useState('');
   const [showPin, setShowPin] = useState(false);
   const [loginScannerOpen, setLoginScannerOpen] = useState(false);
+  const [pendingScanToken, setPendingScanToken] = useState(null);
 
   // Admin Data States
   const [staff, setStaff] = useState([]);
@@ -179,15 +180,20 @@ export function App() {
   }, [phonePortalUrl]);
 
   // ----------------------------------------------------
-  // AUTO-LOGIN VIA QR CODE URL PARAMS (?auth=... or ?login=...)
+  // AUTO-LOGIN VIA QR CODE URL PARAMS (?auth=... or ?login=...) & SCAN LINK (?scan=...)
   // ----------------------------------------------------
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const authToken = params.get('auth');
     const loginCode = params.get('login') || params.get('code');
     const pinParam = params.get('pin');
+    const scanParam = params.get('scan');
 
-    if (authToken) {
+    if (scanParam) {
+      setPendingScanToken(scanParam);
+      flash('Shop attendance QR detected! Sign in below to verify your check-in.');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (authToken) {
       setBusy(true);
       api('/login', {
         method: 'POST',
@@ -332,6 +338,11 @@ export function App() {
         setLoginId('');
         setLoginPin('');
         flash(`Welcome back, ${d.staff.name}`);
+        if (pendingScanToken) {
+          const t = pendingScanToken;
+          setPendingScanToken(null);
+          setTimeout(() => submitAttendance(t, 'in'), 300);
+        }
       }
     } catch (e) {
       flash('', e.message);
@@ -595,30 +606,52 @@ export function App() {
 
   const handleManualPasscodeSubmit = async e => {
     e.preventDefault();
-    if (!manualPasscode.trim()) return;
-    await submitAttendance(manualPasscode.trim().toUpperCase(), action);
+    const val = manualPasscode.trim();
+    if (!val) return;
+    const tokenToSend = val.length <= 10 ? val.toUpperCase() : val;
+    await submitAttendance(tokenToSend, action);
     setManualPasscode('');
     stopScanner();
   };
 
   const submitAttendance = async (tokenOrCode, actionType) => {
+    let cleanToken = String(tokenOrCode || '').trim();
+    if (cleanToken.includes('?scan=')) {
+      try {
+        const u = new URL(cleanToken);
+        cleanToken = u.searchParams.get('scan') || cleanToken;
+      } catch {
+        const m = cleanToken.match(/[?&]scan=([^&#]+)/);
+        if (m) cleanToken = decodeURIComponent(m[1]);
+      }
+    }
+
     setBusy(true);
+    let coords = null;
     try {
-      if (!navigator.geolocation) throw new Error('GPS is not available on this phone');
-      const pos = await new Promise((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 0
-        })
-      );
+      if (navigator.geolocation) {
+        const pos = await new Promise((resolve, reject) =>
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 8000,
+            maximumAge: 0
+          })
+        );
+        coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+      }
+    } catch (gpsErr) {
+      console.warn('Geolocation capture failed:', gpsErr);
+    }
+
+    try {
       const d = await api('/attendance/scan', {
         method: 'POST',
         body: JSON.stringify({
-          token: tokenOrCode,
+          token: cleanToken,
           action: actionType || action,
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude
+          latitude: coords ? coords.latitude : null,
+          longitude: coords ? coords.longitude : null,
+          deviceKey: getDeviceKey()
         })
       });
       setMe({ staff: d.staff, attendance: d.attendance });

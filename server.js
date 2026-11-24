@@ -218,7 +218,7 @@ function logScan(staffId, coords, device, result, detail) {
 
 const limiter = rateLimit({
   windowMs: 60000,
-  limit: 30,
+  limit: 150,
   standardHeaders: true,
   legacyHeaders: false
 });
@@ -522,13 +522,16 @@ app.get('/api/owner/qr', ownerOnly, async (req, res) => {
     'DELETE FROM qr_challenges WHERE expires_at < ? OR used = 1'
   ).run(Math.floor(Date.now() / 1000) - 60);
 
-  const dataUrl = await QRCode.toDataURL(token, {
+  const localIp = getLocalIp();
+  const scanUrl = `http://${localIp}:5173/?scan=${encodeURIComponent(token)}`;
+
+  const dataUrl = await QRCode.toDataURL(scanUrl, {
     width: 320,
     margin: 2,
     errorCorrectionLevel: 'M'
   });
 
-  res.json({ token, dataUrl, expiresAt: expires, passcode });
+  res.json({ token, scanUrl, dataUrl, expiresAt: expires, passcode });
 });
 
 // Add staff
@@ -776,19 +779,46 @@ app.get('/api/owner/export.csv', ownerOnly, (req, res) => {
 });
 
 // Attendance QR scan
-app.post('/api/attendance/scan', staffOnly, (req, res) => {
-  const token = String(req.body.token || '');
+app.post('/api/attendance/scan', (req, res) => {
+  let rawToken = String(req.body.token || '').trim();
+  // Extract token if full URL was scanned
+  if (rawToken.includes('?scan=')) {
+    const match = rawToken.match(/[?&]scan=([^&#]+)/);
+    if (match) rawToken = decodeURIComponent(match[1]);
+  }
+
   const latitude = Number(req.body.latitude);
   const longitude = Number(req.body.longitude);
+  const hasCoords = Number.isFinite(latitude) && Number.isFinite(longitude) && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;
+  const coords = hasCoords ? { latitude, longitude } : null;
 
-  const coords = { latitude, longitude };
-  const device = req.session.deviceKey;
-  const staffId = req.session.staffId;
+  let device = req.session.deviceKey || String(req.body.deviceKey || '');
+  let staffId = req.session.staffId;
+
+  // Support inline login if credentials passed with scan
+  if (!staffId && req.body.code && req.body.pin) {
+    const code = String(req.body.code).trim().toUpperCase();
+    const pin = String(req.body.pin);
+    const staff = db.prepare('SELECT * FROM staff WHERE code = ? AND active = 1').get(code);
+    if (staff && bcrypt.compareSync(pin, staff.pin_hash)) {
+      staffId = staff.id;
+      req.session.role = 'staff';
+      req.session.staffId = staff.id;
+      req.session.deviceKey = device;
+    } else {
+      logScan(null, coords, device, 'failed_login', `Login failed during scan for Staff ID ${code}`);
+      return res.status(401).json({ error: 'Invalid Staff ID or PIN' });
+    }
+  }
 
   const fail = (status, detail, code = 400) => {
     logScan(staffId, coords, device, status, detail);
     return res.status(code).json({ error: detail });
   };
+
+  if (!staffId) {
+    return fail('unauthenticated_scan', 'Staff login required to record attendance.', 401);
+  }
 
   if (!configured) {
     return fail(
@@ -798,15 +828,8 @@ app.post('/api/attendance/scan', staffOnly, (req, res) => {
     );
   }
 
-  if (
-    !Number.isFinite(latitude) ||
-    !Number.isFinite(longitude) ||
-    latitude < -90 ||
-    latitude > 90 ||
-    longitude < -180 ||
-    longitude > 180
-  ) {
-    return fail('failed_gps', 'Valid GPS coordinates are required.');
+  if (!hasCoords) {
+    return fail('failed_gps', 'Valid GPS coordinates are required to verify presence.');
   }
 
   const meters = distanceMeters(
@@ -826,8 +849,8 @@ app.post('/api/attendance/scan', staffOnly, (req, res) => {
 
   let payloadId = null;
 
-  if (token.includes('.')) {
-    const parts = token.split('.');
+  if (rawToken.includes('.')) {
+    const parts = rawToken.split('.');
 
     if (
       parts.length !== 2 ||
@@ -858,7 +881,7 @@ app.post('/api/attendance/scan', staffOnly, (req, res) => {
     }
   } else {
     // 6-character live shop passcode support
-    const cleanPasscode = token.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const cleanPasscode = rawToken.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
     const now = Math.floor(Date.now() / 1000);
     const challenge = db.prepare(
       'SELECT id FROM qr_challenges WHERE id LIKE ? AND used = 0 AND expires_at >= ?'
@@ -916,7 +939,16 @@ app.post('/api/attendance/scan', staffOnly, (req, res) => {
     `).get(staffId, today());
   }
 
-  const action = String(req.body.action || '');
+  let action = String(req.body.action || '').trim().toLowerCase();
+  if (!action) {
+    if (!row.clock_in) {
+      action = 'in';
+    } else if (row.status === 'lunch') {
+      action = 'lunch';
+    } else {
+      action = 'out';
+    }
+  }
   const time = nowIso();
 
   if (action === 'in') {
