@@ -348,9 +348,9 @@ button {
    MAIN APP SHELL
 -------------------------------------------------- */
 .app-container {
-  max-width: 1140px;
+  max-width: 1240px;
   margin: 0 auto;
-  padding: 0 20px 48px;
+  padding: 0 clamp(16px, 2.5vw, 28px) 48px;
 }
 
 /* Top Bar */
@@ -869,35 +869,24 @@ button {
   margin-top: 3px;
 }
 
-/* Dynamic Real-time KPI Grid */
+/* Dynamic Real-time KPI Grid - 5 Cards Layout */
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
   margin-bottom: 24px;
-}
-
-@media (max-width: 1024px) {
-  .kpi-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 640px) {
-  .kpi-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .kpi-card {
   background: var(--surface-card);
   border: 1px solid var(--border-card);
   border-radius: var(--radius-card);
-  padding: 20px;
+  padding: 16px 14px;
   box-shadow: var(--shadow-card);
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
+  min-width: 0;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -910,12 +899,16 @@ button {
 .kpi-info {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .kpi-subtext {
   font-size: 0.72rem;
   color: var(--text-muted);
   margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .kpi-icon {
@@ -1110,6 +1103,7 @@ button {
 .table-responsive {
   width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .saas-table {
@@ -1120,7 +1114,7 @@ button {
 
 .saas-table th {
   background: #F8FAFC;
-  padding: 12px 20px;
+  padding: 12px clamp(10px, 1.2vw, 18px);
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -1131,9 +1125,9 @@ button {
 }
 
 .saas-table td {
-  padding: 16px 20px;
+  padding: 14px clamp(10px, 1.2vw, 18px);
   border-bottom: 1px solid #F1F5F9;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   color: var(--text-secondary);
   vertical-align: middle;
 }
@@ -1477,39 +1471,97 @@ button {
 }
 
 /* --------------------------------------------------
-   RESPONSIVE DESIGN BREAKPOINTS
+   RESPONSIVE DESIGN SYSTEM (Laptops, Desktops, Tablets, Mobile)
 -------------------------------------------------- */
+
+/* Standard Laptops & Tablets Landscape (961px to 1180px) */
+@media (max-width: 1180px) {
+  .kpi-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .kpi-card {
+    padding: 14px 10px;
+    gap: 10px;
+  }
+
+  .kpi-icon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .kpi-value {
+    font-size: 1.5rem;
+  }
+}
+
+/* Tablets Portrait & Small Laptops (769px to 960px) */
+@media (max-width: 960px) {
+  .kpi-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+
+  .kpi-card:nth-child(4) {
+    grid-column: span 1;
+  }
+
+  .kpi-card:nth-child(5) {
+    grid-column: span 2;
+  }
+
+  .split-directory-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+/* Mobile & Small Tablets (481px to 768px) */
 @media (max-width: 768px) {
   .app-container {
     padding: 0 16px 36px;
   }
 
   .kpi-grid {
-    grid-template-columns: 1fr;
-    gap: 12px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .kpi-card:last-child {
+    grid-column: span 2;
   }
 
   .owner-header-row {
     flex-direction: column;
     align-items: flex-start;
+    gap: 12px;
+  }
+
+  .owner-title-block h2 {
+    font-size: 1.3rem;
   }
 
   .action-bar {
     flex-direction: column;
     align-items: stretch;
+    gap: 10px;
   }
 
   .search-input-wrapper {
     max-width: 100%;
+    min-width: 100%;
   }
 
   .action-buttons-group {
     justify-content: flex-start;
     flex-wrap: wrap;
+    width: 100%;
   }
 
   .split-directory-grid {
     grid-template-columns: 1fr;
+    gap: 16px;
   }
 
   /* Table to Card View Switch */
@@ -1519,10 +1571,111 @@ button {
 
   .mobile-card-list {
     display: flex;
+    flex-direction: column;
+    gap: 12px;
   }
 
   .digital-clock {
     font-size: 2rem;
+  }
+
+  .calendar-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px 16px;
+  }
+
+  .calendar-input-group {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .portal-link-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* Compact Mobile Phones (< 480px) */
+@media (max-width: 480px) {
+  .app-container {
+    padding: 0 12px 28px;
+  }
+
+  .app-topbar {
+    height: auto;
+    padding: 10px 0;
+    gap: 8px;
+  }
+
+  .topbar-subtitle {
+    display: none;
+  }
+
+  .live-db-pill {
+    display: none;
+  }
+
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .kpi-card {
+    padding: 12px 10px;
+    gap: 8px;
+    border-radius: 14px;
+  }
+
+  .kpi-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+  }
+
+  .kpi-icon svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .kpi-value {
+    font-size: 1.35rem;
+  }
+
+  .kpi-label {
+    font-size: 0.68rem;
+  }
+
+  .kpi-subtext {
+    font-size: 0.65rem;
+  }
+
+  .kpi-card:last-child {
+    grid-column: span 2;
+  }
+
+  .login-card {
+    padding: 24px 16px;
+    border-radius: 16px;
+  }
+
+  .digital-clock {
+    font-size: 1.75rem;
+  }
+
+  .split-action-row {
+    grid-template-columns: 1fr;
+  }
+
+  .btn-lunch, .btn-checkout {
+    height: 48px;
+    font-size: 0.9rem;
+  }
+
+  .dashboard-tab-btn {
+    padding: 10px 12px;
+    font-size: 0.8rem;
   }
 }
 
