@@ -141,6 +141,14 @@ export function App() {
   const loginScanner = useRef(null);
   const fileInputRef = useRef(null);
 
+  // Staff PIN Change States
+  const [pinChangeOpen, setPinChangeOpen] = useState(false);
+  const [staffCurrentPin, setStaffCurrentPin] = useState('');
+  const [staffNewPin, setStaffNewPin] = useState('');
+  const [staffConfirmPin, setStaffConfirmPin] = useState('');
+  const [showCurrentPin, setShowCurrentPin] = useState(false);
+  const [showNewPin, setShowNewPin] = useState(false);
+
   // Local Network IP for smartphones on same Wi-Fi
   const networkIp = status?.localIp || '192.168.1.15';
   const phonePortalUrl =
@@ -539,6 +547,55 @@ export function App() {
       refreshAdmin(selectedDate);
     } catch (e) {
       flash('', e.message);
+    }
+  };
+
+  const handleStaffChangePin = async e => {
+    e.preventDefault();
+    if (staffNewPin !== staffConfirmPin) {
+      flash('', 'New PIN and Confirmation PIN do not match.');
+      return;
+    }
+    if (!/^\d{4,8}$/.test(staffNewPin)) {
+      flash('', 'New PIN must be between 4 and 8 numeric digits.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await api('/staff/pin', {
+        method: 'POST',
+        body: JSON.stringify({ currentPin: staffCurrentPin, newPin: staffNewPin })
+      });
+      flash(res.message || 'Your PIN has been updated successfully!');
+      setStaffCurrentPin('');
+      setStaffNewPin('');
+      setStaffConfirmPin('');
+      setPinChangeOpen(false);
+    } catch (err) {
+      flash('', err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleAdminResetStaffPin = async (staffId, staffName) => {
+    const newPin = prompt(`Enter new 4–8 digit PIN for ${staffName}:`);
+    if (!newPin) return;
+    if (!/^\d{4,8}$/.test(newPin.trim())) {
+      flash('', 'PIN must be between 4 and 8 numeric digits.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await api(`/owner/staff/${staffId}/pin`, {
+        method: 'POST',
+        body: JSON.stringify({ pin: newPin.trim() })
+      });
+      flash(res.message || `PIN updated for ${staffName}!`);
+    } catch (err) {
+      flash('', err.message);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -1170,6 +1227,106 @@ export function App() {
               </div>
             </div>
           </section>
+
+          {/* Staff Change PIN Section */}
+          <section className="staff-pin-card">
+            <div className="staff-pin-header" onClick={() => setPinChangeOpen(!pinChangeOpen)}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div className="pin-card-icon">
+                  <KeyRound size={18} />
+                </div>
+                <div>
+                  <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#0F172A' }}>Security & PIN Settings</h4>
+                  <p style={{ fontSize: '0.78rem', color: '#64748B' }}>Change your private staff sign-in PIN</p>
+                </div>
+              </div>
+              <button type="button" className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+                {pinChangeOpen ? 'Hide' : 'Change PIN'}
+              </button>
+            </div>
+
+            {pinChangeOpen && (
+              <form onSubmit={handleStaffChangePin} className="staff-pin-form">
+                <div className="form-group">
+                  <label className="form-label">
+                    <span>Current Security PIN</span>
+                    <span className="section-label" style={{ fontSize: '0.65rem' }}>Verify Identity</span>
+                  </label>
+                  <div className="input-wrapper">
+                    <span className="input-icon-left"><Lock size={16} /></span>
+                    <input
+                      type={showCurrentPin ? 'text' : 'password'}
+                      inputMode="numeric"
+                      maxLength={8}
+                      value={staffCurrentPin}
+                      onChange={e => setStaffCurrentPin(e.target.value)}
+                      placeholder="Enter current PIN"
+                      className="form-input font-mono"
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="toggle-password-btn"
+                      onClick={() => setShowCurrentPin(!showCurrentPin)}
+                    >
+                      {showCurrentPin ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">
+                    <span>New Security PIN</span>
+                    <span className="section-label" style={{ fontSize: '0.65rem' }}>4–8 Digits</span>
+                  </label>
+                  <div className="input-wrapper">
+                    <span className="input-icon-left"><KeyRound size={16} /></span>
+                    <input
+                      type={showNewPin ? 'text' : 'password'}
+                      inputMode="numeric"
+                      maxLength={8}
+                      value={staffNewPin}
+                      onChange={e => setStaffNewPin(e.target.value)}
+                      placeholder="Enter new 4–8 digit PIN"
+                      className="form-input font-mono"
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="toggle-password-btn"
+                      onClick={() => setShowNewPin(!showNewPin)}
+                    >
+                      {showNewPin ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">
+                    <span>Confirm New PIN</span>
+                    <span className="section-label" style={{ fontSize: '0.65rem' }}>Must Match</span>
+                  </label>
+                  <div className="input-wrapper">
+                    <span className="input-icon-left"><Check size={16} /></span>
+                    <input
+                      type={showNewPin ? 'text' : 'password'}
+                      inputMode="numeric"
+                      maxLength={8}
+                      value={staffConfirmPin}
+                      onChange={e => setStaffConfirmPin(e.target.value)}
+                      placeholder="Re-enter new PIN"
+                      className="form-input font-mono"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <button type="submit" className="btn-primary" disabled={busy || !staffNewPin || !staffCurrentPin}>
+                  <ShieldCheck size={16} /> {busy ? 'Updating PIN…' : 'Update My Security PIN'}
+                </button>
+              </form>
+            )}
+          </section>
         </div>
       ) : (
         /* ----------------------------------------------------
@@ -1767,6 +1924,16 @@ export function App() {
                           title="Copy Staff Login Details"
                         >
                           <Copy size={13} />
+                        </button>
+
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ padding: '6px 10px', fontSize: '0.78rem' }}
+                          onClick={() => handleAdminResetStaffPin(s.id, s.name)}
+                          title="Reset staff member's PIN"
+                        >
+                          <KeyRound size={13} /> PIN
                         </button>
 
                         <button

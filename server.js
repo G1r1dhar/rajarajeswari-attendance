@@ -521,6 +521,25 @@ app.post('/api/owner/staff/:id/delete', ownerOnly, async (req, res) => {
   res.json({ ok: true, message: 'Staff member deleted successfully' });
 });
 
+// Admin reset staff PIN
+app.post('/api/owner/staff/:id/pin', ownerOnly, async (req, res) => {
+  const staffId = Number(req.params.id);
+  const newPin = String(req.body.pin || '').trim();
+
+  if (!/^\d{4,8}$/.test(newPin)) {
+    return res.status(400).json({ error: 'PIN must be between 4 and 8 digits.' });
+  }
+
+  const staff = await findStaffById(staffId);
+  if (!staff) return res.status(404).json({ error: 'Staff member not found.' });
+
+  const hash = bcrypt.hashSync(newPin, 12);
+  await updateStaffPin(staffId, hash);
+  await logScan(staffId, null, null, 'admin_pin_reset', `Admin reset PIN for staff ${staff.code}`);
+
+  res.json({ ok: true, message: `PIN updated successfully for ${staff.name} (${staff.code}).` });
+});
+
 // Admin attendance board with calendar date filter
 app.get('/api/owner/board', ownerOnly, async (req, res) => {
   const targetDate = String(req.query.date || today()).slice(0, 10);
@@ -801,6 +820,32 @@ app.get('/api/staff/me', staffOnly, async (req, res) => {
     staff: staff ? { name: staff.name, code: staff.code } : null,
     attendance: attendance || null
   });
+});
+
+// Staff self-service PIN change
+app.post('/api/staff/pin', staffOnly, async (req, res) => {
+  const currentPin = String(req.body.currentPin || '');
+  const newPin = String(req.body.newPin || '').trim();
+
+  if (!/^\d{4,8}$/.test(newPin)) {
+    return res.status(400).json({ error: 'New PIN must be between 4 and 8 numeric digits.' });
+  }
+
+  const staff = await findStaffById(req.session.staffId);
+  if (!staff) {
+    return res.status(404).json({ error: 'Staff account not found.' });
+  }
+
+  if (!bcrypt.compareSync(currentPin, staff.pin_hash)) {
+    await logScan(staff.id, null, req.session.deviceKey, 'failed_pin_change', 'Incorrect current PIN provided');
+    return res.status(401).json({ error: 'Current PIN is incorrect.' });
+  }
+
+  const newHash = bcrypt.hashSync(newPin, 12);
+  await updateStaffPin(staff.id, newHash);
+  await logScan(staff.id, null, req.session.deviceKey, 'pin_changed', 'Staff updated their security PIN');
+
+  res.json({ ok: true, message: 'Your security PIN has been updated successfully.' });
 });
 
 // React frontend
