@@ -902,14 +902,14 @@ export function App() {
           <div className="login-role-selector">
             <button
               type="button"
-              className={`role-select-btn ${loginId === 'ADMIN' ? 'active' : ''}`}
+              className={`role-select-btn ${(loginId === 'ADMIN' || loginId === 'OWNER') ? 'active' : ''}`}
               onClick={() => { setLoginId('ADMIN'); setLoginPin('1234'); }}
             >
               <ShieldCheck size={14} /> Admin Portal
             </button>
             <button
               type="button"
-              className={`role-select-btn ${loginId === 'RR001' ? 'active' : ''}`}
+              className={`role-select-btn ${(loginId === 'RR001' || loginId === 'RAJ') ? 'active' : ''}`}
               onClick={() => { setLoginId('RR001'); setLoginPin('1234'); }}
             >
               <User size={14} /> Staff Portal
@@ -971,8 +971,8 @@ export function App() {
             <div className="login-role-hint">
               <Info size={16} style={{ flexShrink: 0, marginTop: '2px', color: '#059669' }} />
               <div>
-                <strong>Staff:</strong> Enter your Staff ID (e.g. <code>RR001</code>) and PIN.<br />
-                <strong>Admin:</strong> Enter ID <code>ADMIN</code> with your secure Admin PIN.
+                <strong>Staff:</strong> Enter your Staff ID (<code>RR001</code>) or Name (<code>RAJ</code>) and PIN (<code>1234</code>).<br />
+                <strong>Admin:</strong> Enter ID <code>ADMIN</code> and Admin PIN (<code>1234</code>).
               </div>
             </div>
 

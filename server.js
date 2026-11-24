@@ -294,6 +294,11 @@ app.post(
               });
             }
           }
+          if (payload.id && payload.exp) {
+            return res.status(400).json({
+              error: 'That is the Shop Attendance QR. To sign in, enter your Staff ID & PIN below or click the Staff Portal button.'
+            });
+          }
         } catch {}
       }
     }

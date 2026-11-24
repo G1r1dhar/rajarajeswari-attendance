@@ -258,12 +258,22 @@ export async function setOwnerPin(newPin) {
 // ----------------------------------------------------
 // STAFF
 // ----------------------------------------------------
-export async function findStaffByCode(code) {
-  const cleanCode = String(code || '').trim().toUpperCase();
+export async function findStaffByCode(codeOrName) {
+  const clean = String(codeOrName || '').trim();
+  const cleanUpper = clean.toUpperCase();
   if (usingMongo) {
-    return await mongoDb.collection('staff').findOne({ code: cleanCode, active: 1 });
+    return await mongoDb.collection('staff').findOne({
+      active: 1,
+      $or: [
+        { code: cleanUpper },
+        { name: { $regex: `^${clean.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}$`, $options: 'i' } }
+      ]
+    });
   }
-  return sqliteDb.prepare('SELECT * FROM staff WHERE code = ? AND active = 1').get(cleanCode);
+  return sqliteDb.prepare(`
+    SELECT * FROM staff 
+    WHERE (code = ? OR UPPER(name) = ?) AND active = 1
+  `).get(cleanUpper, cleanUpper);
 }
 
 export async function findStaffById(id) {
