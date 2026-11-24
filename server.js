@@ -103,8 +103,11 @@ const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
-const QR_SECRET = process.env.QR_SIGNING_SECRET || '';
-const SESSION_SECRET = process.env.SESSION_SECRET || '';
+const DEFAULT_QR_SECRET = '021f4d885ed69d1875d738cdf6b2cf2a1cc1a6834531ee6298fd9613295dc2a5';
+const QR_SECRET = process.env.QR_SIGNING_SECRET || DEFAULT_QR_SECRET;
+
+const DEFAULT_SESSION_SECRET = 'e9a6ea7cd07805595f4870f8d177a787088ab37113b5d508c87dc81e5e5b2f4a';
+const SESSION_SECRET = process.env.SESSION_SECRET || DEFAULT_SESSION_SECRET;
 
 async function getShopConfig() {
   const dbLat = await getSetting('shop_lat');
@@ -258,48 +261,74 @@ app.post(
     const authToken = String(req.body.authToken || req.body.auth || '');
 
     // 1. QR Code Direct Login
-    if (authToken && authToken.includes('.')) {
-      const parts = authToken.split('.');
-      if (parts.length === 2 && safeEqual(sign(parts[0]), parts[1])) {
+    if (authToken) {
+      const cleanAuth = String(authToken).trim();
+      let tokenToVerify = cleanAuth;
+
+      if (cleanAuth.includes('?auth=')) {
+        try {
+          const u = new URL(cleanAuth);
+          tokenToVerify = u.searchParams.get('auth') || cleanAuth;
+        } catch {
+          const m = cleanAuth.match(/[?&]auth=([^&#]+)/);
+          if (m) tokenToVerify = decodeURIComponent(m[1]);
+        }
+      }
+
+      if (tokenToVerify.includes('.')) {
+        const parts = tokenToVerify.split('.');
+        if (parts.length !== 2 || !safeEqual(sign(parts[0]), parts[1])) {
+          return res.status(401).json({
+            error: 'QR login signature mismatch. Please generate the staff QR on the live portal (https://rajarajeswari-attendance.onrender.com) so both devices use the same server key.'
+          });
+        }
+
         try {
           const payload = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
-          if (payload.code) {
-            const staff = await findStaffByCode(payload.code);
-            if (staff) {
-              const cleanDevice = /^[a-zA-Z0-9_-]{16,100}$/.test(deviceKey)
-                ? deviceKey
-                : crypto.randomBytes(16).toString('hex');
-
-              let device = await findDevice(staff.id, cleanDevice);
-              if (!device) {
-                await registerDevice(staff.id, cleanDevice, 1);
-                await logScan(staff.id, null, cleanDevice, 'device_approved', 'Device registered via QR Code Login');
-              } else if (!device.approved) {
-                await approveDevice(device.id);
-              }
-
-              return req.session.regenerate(err => {
-                if (err) return res.status(500).json({ error: 'Session error' });
-                req.session.role = 'staff';
-                req.session.staffId = staff.id;
-                req.session.deviceKey = cleanDevice;
-                req.session.save(err => {
-                  if (err) return res.status(500).json({ error: 'Session save failed' });
-                  res.json({
-                    ok: true,
-                    role: 'staff',
-                    staff: { name: staff.name, code: staff.code }
-                  });
-                });
-              });
-            }
-          }
           if (payload.id && payload.exp) {
             return res.status(400).json({
-              error: 'That is the Shop Attendance QR. To sign in, enter your Staff ID & PIN below or click the Staff Portal button.'
+              error: 'That is the Shop Attendance QR. To sign in, enter your Staff ID & PIN or scan your personal Staff Login QR.'
             });
           }
-        } catch {}
+
+          if (payload.code) {
+            const staff = await findStaffByCode(payload.code);
+            if (!staff) {
+              return res.status(404).json({ error: `Staff member (${payload.code}) not found in database.` });
+            }
+
+            const cleanDevice = /^[a-zA-Z0-9_-]{16,100}$/.test(deviceKey)
+              ? deviceKey
+              : crypto.randomBytes(16).toString('hex');
+
+            let device = await findDevice(staff.id, cleanDevice);
+            if (!device) {
+              await registerDevice(staff.id, cleanDevice, 1);
+              await logScan(staff.id, null, cleanDevice, 'device_approved', 'Device registered via QR Code Login');
+            } else if (!device.approved) {
+              await approveDevice(device.id);
+            }
+
+            return req.session.regenerate(err => {
+              if (err) return res.status(500).json({ error: 'Session error' });
+              req.session.role = 'staff';
+              req.session.staffId = staff.id;
+              req.session.deviceKey = cleanDevice;
+              req.session.save(err => {
+                if (err) return res.status(500).json({ error: 'Session save failed' });
+                res.json({
+                  ok: true,
+                  role: 'staff',
+                  staff: { name: staff.name, code: staff.code }
+                });
+              });
+            });
+          }
+        } catch {
+          return res.status(400).json({ error: 'Corrupted QR code data.' });
+        }
+      } else {
+        return res.status(400).json({ error: 'Invalid QR token format.' });
       }
     }
 
