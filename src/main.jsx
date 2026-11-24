@@ -57,8 +57,15 @@ const api = async (path, opts = {}) => {
 
 const getDeviceKey = () => {
   let k = localStorage.getItem('rr_device_key');
-  if (!k) {
-    k = crypto.randomUUID().replaceAll('-', '');
+  if (!k || k.length < 16) {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      try {
+        k = crypto.randomUUID().replace(/-/g, '');
+      } catch {}
+    }
+    if (!k || k.length < 16) {
+      k = 'dev_' + Math.random().toString(36).substring(2) + Date.now().toString(36) + Math.random().toString(36).substring(2);
+    }
     localStorage.setItem('rr_device_key', k);
   }
   return k;

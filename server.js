@@ -324,19 +324,23 @@ app.post(
     // Staff authentication
     const staff = db.prepare('SELECT * FROM staff WHERE code = ? AND active = 1').get(id);
 
-    if (!staff || !bcrypt.compareSync(pin, staff.pin_hash) || !/^[a-zA-Z0-9_-]{16,100}$/.test(deviceKey)) {
-      logScan(staff?.id, null, deviceKey, 'failed_login', 'Invalid credentials or device key');
+    if (!staff || !bcrypt.compareSync(pin, staff.pin_hash)) {
+      logScan(staff?.id, null, deviceKey, 'failed_login', 'Invalid credentials');
       return res.status(401).json({ error: 'Invalid ID or PIN.' });
     }
 
-    let device = db.prepare('SELECT * FROM devices WHERE staff_id = ? AND device_key = ?').get(staff.id, deviceKey);
+    const cleanDevice = /^[a-zA-Z0-9_-]{16,100}$/.test(deviceKey)
+      ? deviceKey
+      : crypto.randomBytes(16).toString('hex');
+
+    let device = db.prepare('SELECT * FROM devices WHERE staff_id = ? AND device_key = ?').get(staff.id, cleanDevice);
 
     if (!device) {
       db.prepare(
         'INSERT INTO devices (staff_id, device_key, approved, created_at) VALUES (?, ?, 1, ?)'
-      ).run(staff.id, deviceKey, nowIso());
+      ).run(staff.id, cleanDevice, nowIso());
 
-      logScan(staff.id, null, deviceKey, 'device_approved', 'New device registered & approved');
+      logScan(staff.id, null, cleanDevice, 'device_approved', 'New device registered & approved');
     } else if (!device.approved) {
       db.prepare('UPDATE devices SET approved = 1 WHERE id = ?').run(device.id);
     }
@@ -346,7 +350,7 @@ app.post(
 
       req.session.role = 'staff';
       req.session.staffId = staff.id;
-      req.session.deviceKey = deviceKey;
+      req.session.deviceKey = cleanDevice;
 
       req.session.save(err => {
         if (err) return res.status(500).json({ error: 'Session save failed' });
